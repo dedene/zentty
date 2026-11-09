@@ -273,6 +273,9 @@ final class RootViewController: NSViewController {
     var onShowSettingsSectionRequested: ((SettingsSection) -> Void)?
     var onCheckForUpdatesRequested: (() -> Void)?
     var onCloseWindowRequested: (() -> Void)?
+    /// The Close Window command, which unlike a pane-driven close still has to
+    /// pass the close confirmation.
+    var onCloseWindowCommandRequested: (() -> Void)?
     /// Running overlay floats a close would terminate, for the close prompts.
     var runningQuickActionsClosingWithPane: ((PaneID) -> [RunningQuickAction])?
     var runningQuickActionsClosingWithWorklane: ((WorklaneID) -> [RunningQuickAction])?
@@ -1052,6 +1055,7 @@ final class RootViewController: NSViewController {
             if !active {
                 self.sidebarMotionCoordinator.handle(.hoverRailExited)
                 self.syncSidebarVisibilityControls(animated: true)
+                self.renderCoordinator.flushCanvasRenderDeferredByDrag()
             }
         }
         appCanvasView.paneStripView.activeWorklaneIDProvider = { [weak self] in
@@ -1848,6 +1852,7 @@ final class RootViewController: NSViewController {
     private func navigateToNotification(_ notification: AppNotification) {
         if notification.windowID == windowID {
             navigateToPane(worklaneID: notification.worklaneID, paneID: notification.paneID)
+            worklaneStore.revealOverlayFloatAwaitingNavigation(on: notification.paneID)
             return
         }
 
@@ -2161,6 +2166,10 @@ final class RootViewController: NSViewController {
         toasts.show(message: message, duration: duration)
     }
 
+    func showFailureToast(message: String, staysFor displayDuration: TimeInterval) {
+        toasts.showFailure(message: message, staysFor: displayDuration)
+    }
+
     private func commandAvailabilityContext() -> CommandAvailabilityContext {
         CommandAvailabilityContext(
             counts: PaneAvailabilityCounts(worklaneStore: worklaneStore),
@@ -2327,6 +2336,13 @@ final class RootViewController: NSViewController {
                 // Only the key window polls PR status, so this window's badge may have frozen while
                 // inactive — refresh it immediately on refocus.
                 self?.renderCoordinator.refreshFocusedReviewStateOnWindowFocus()
+            }
+        }
+        observerBag.addObserver(forName: NSWindow.didResignKeyNotification, object: window) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                // The local key monitor never sees a Ctrl release in another
+                // app, so abort now rather than leave peek holding the mouse.
+                self?.peekController.handleEscape()
             }
         }
         observerBag.addObserver(forName: NSWindow.didChangeScreenNotification, object: window) { [weak self] _ in
@@ -3359,11 +3375,22 @@ extension RootViewController: AppActionRouterEnvironment {
     }
 
     func routeNextWorklane() {
-        peekController.handleTab(forward: true)
+        routePeekTab(forward: true)
     }
 
     func routePreviousWorklane() {
-        peekController.handleTab(forward: false)
+        routePeekTab(forward: false)
+    }
+
+    /// Ctrl-Tab does nothing during a pointer gesture: from arming onward the
+    /// peek monitor swallows the gesture's mouse-up, and peek's zoom would take
+    /// over the strip's drag zoom. An armed or open peek is unaffected, since
+    /// it swallows mouse input and so no gesture can start under it.
+    private func routePeekTab(forward: Bool) {
+        if peekController.phase == .idle, isPointerGestureActive {
+            return
+        }
+        peekController.handleTab(forward: forward)
     }
 
     func routeSelectWorklane(position: Int) {
@@ -3511,9 +3538,14 @@ extension RootViewController: AppActionRouterEnvironment {
     /// the command, peek hides the float layer, and a float gesture commits
     /// its own store change on mouse-up.
     private var isFloatCommandBlocked: Bool {
+        isWorklanePeekActive || isPointerGestureActive
+    }
+
+    /// A strip drag, divider drag or float gesture owns the mouse until its
+    /// mouse-up.
+    private var isPointerGestureActive: Bool {
         let paneStripView = appCanvasView.paneStripView
-        return isWorklanePeekActive
-            || paneStripView.isDragActive
+        return paneStripView.isDragActive
             || paneStripView.isDividerDragActive
             || appCanvasView.floatLayerView.isGestureActive
     }
@@ -3704,7 +3736,12 @@ extension RootViewController: AppActionRouterEnvironment {
     }
 
     func routeCloseWindow() {
-        view.window?.close()
+        if let onCloseWindowCommandRequested {
+            onCloseWindowCommandRequested()
+            return
+        }
+
+        view.window?.performClose(nil)
     }
 
     func routeReloadConfig() {

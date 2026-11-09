@@ -17,6 +17,12 @@
       "Run this exact shell command: printf ZENTTY_AGENT_BENCH_OK"
     ],
     "tasks": [
+      "--model",
+      "gpt-6-luna",
+      "--config",
+      "model_reasoning_effort=\"low\"",
+      "--config",
+      "tools.update_plan={enabled=true}",
       "--sandbox",
       "workspace-write",
       "--ask-for-approval",
@@ -33,24 +39,42 @@
       "--no-alt-screen"
     ],
     "approval": [
+      "--model",
+      "gpt-6-luna",
+      "--config",
+      "model_reasoning_effort=\"low\"",
+      "--config",
+      "approvals_reviewer=\"user\"",
       "--sandbox",
-      "workspace-write",
+      "read-only",
       "--ask-for-approval",
-      "untrusted",
-      "Run this exact shell command: printf ZENTTY_AGENT_BENCH_APPROVAL_OK"
+      "on-request",
+      "For an integration hook regression test, run this exact shell command with escalated sandbox permissions, so I am asked to approve it first: touch ZENTTY_AGENT_BENCH_APPROVAL_OK"
     ],
     "auto_approval": [
+      "--model",
+      "gpt-6-luna",
+      "--config",
+      "model_reasoning_effort=\"low\"",
       "--ask-for-approval",
-      "untrusted",
+      "on-request",
       "exec",
       "--sandbox",
       "workspace-write",
       "Run this exact shell command: printf ZENTTY_AGENT_BENCH_AUTO_APPROVAL_OK"
     ],
     "question": [
+      "--model",
+      "gpt-6-luna",
+      "--config",
+      "model_reasoning_effort=\"low\"",
       "Ask me one short random question using the askuserquestion tool. Do not answer it yourself."
     ],
     "question_interrupt": [
+      "--model",
+      "gpt-6-luna",
+      "--config",
+      "model_reasoning_effort=\"low\"",
       "Ask me one short random question using the askuserquestion tool. Do not answer it yourself."
     ],
     "manual_compact": [
@@ -135,19 +159,21 @@
     "approval": [
       {
         "match": "trust",
-        "text": "1\n",
+        "delay": 1,
+        "text": "1\r",
         "label": "trust-workspace"
       },
       {
         "match": "Would you like to run the following command",
-        "text": "y\n",
+        "delay": 1,
+        "text": "y\r",
         "label": "approve-command"
       }
     ],
     "tasks": [
       {
         "match": "trust",
-        "after": 4,
+        "delay": 1,
         "text": "1\r",
         "label": "trust-workspace"
       },
@@ -166,13 +192,16 @@
     "question": [
       {
         "match": "trust",
-        "text": "1\n"
+        "delay": 1,
+        "text": "1\r",
+        "label": "trust-workspace"
       }
     ],
     "question_interrupt": [
       {
         "match": "trust",
-        "text": "1\n",
+        "delay": 1,
+        "text": "1\r",
         "label": "trust-workspace"
       },
       {
@@ -184,7 +213,8 @@
     "tui_restart": [
       {
         "match": "trust",
-        "text": "1\n",
+        "delay": 1,
+        "text": "1\r",
         "label": "trust-workspace"
       },
       {
@@ -196,7 +226,8 @@
     "manual_compact": [
       {
         "match": "trust",
-        "text": "1\n",
+        "delay": 1,
+        "text": "1\r",
         "label": "trust-workspace"
       },
       {

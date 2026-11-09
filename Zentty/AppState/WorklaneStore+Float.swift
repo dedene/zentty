@@ -216,7 +216,9 @@ extension WorklaneStore {
     /// Brings a PiP or pill back as a float at its last frame, raised and
     /// focused. On a float that is already floating it just focuses it. Out
     /// of sight (another worklane) a finished agent keeps its Done status.
+    /// Being shown consumes a pending `--notify` reveal.
     func restoreFloat(_ id: PaneID) {
+        overlayFloatsAwaitingReveal.remove(id)
         guard let worklaneIndex = worklaneIndex(containingPane: id),
               let index = worklanes[worklaneIndex].floatingPanes.firstIndex(where: { $0.pane.id == id }) else {
             return

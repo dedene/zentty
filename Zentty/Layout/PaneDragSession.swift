@@ -6,6 +6,9 @@ enum PaneDragPhase: Equatable, Sendable {
     case idle
     case pending(PaneDragPendingState)
     case active(PaneDragActiveState)
+    /// The drop or cancel is decided and its animation is running. Late input
+    /// is refused; teardown returns the phase to `.idle`.
+    case finishing(PaneDragActiveState)
 }
 
 struct PaneDragPendingState: Equatable, Sendable {

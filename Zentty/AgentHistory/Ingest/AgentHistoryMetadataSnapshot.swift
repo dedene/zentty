@@ -1,5 +1,20 @@
 import Foundation
 
+/// What a snapshot knows about removed sessions. An empty list and an unread one mean opposite
+/// things to a live pane, so nothing may take `.unknown` for "nothing is removed".
+enum AgentHistoryRemovals: Sendable, Equatable {
+    /// The indexer hasn't read its tombstones for this index yet.
+    case unknown
+    case known(Set<AgentHistorySessionKey>)
+
+    var keys: Set<AgentHistorySessionKey> {
+        switch self {
+        case .unknown: []
+        case .known(let keys): keys
+        }
+    }
+}
+
 /// An immutable copy of every visible session, newest `updatedAtMs` first. The metadata search
 /// tier reads it without touching SQLite; `generation` changes with every build so readers can
 /// cache derived data per generation.
@@ -11,7 +26,21 @@ struct AgentHistoryMetadataSnapshot: Sendable {
     let isComplete: Bool
     /// Sessions removed from History (tombstones in force). They are never in `sessions`; kept
     /// so a live pane of one is told apart from a session that is not indexed yet.
-    let removedKeys: Set<AgentHistorySessionKey>
+    let removals: AgentHistoryRemovals
+
+    var removedKeys: Set<AgentHistorySessionKey> { removals.keys }
+
+    init(
+        generation: UInt64,
+        sessions: [AgentHistorySessionSummary],
+        isComplete: Bool,
+        removals: AgentHistoryRemovals
+    ) {
+        self.generation = generation
+        self.sessions = sessions
+        self.isComplete = isComplete
+        self.removals = removals
+    }
 
     init(
         generation: UInt64,
@@ -19,13 +48,10 @@ struct AgentHistoryMetadataSnapshot: Sendable {
         isComplete: Bool,
         removedKeys: Set<AgentHistorySessionKey> = []
     ) {
-        self.generation = generation
-        self.sessions = sessions
-        self.isComplete = isComplete
-        self.removedKeys = removedKeys
+        self.init(generation: generation, sessions: sessions, isComplete: isComplete, removals: .known(removedKeys))
     }
 
-    static let empty = AgentHistoryMetadataSnapshot(generation: 0, sessions: [], isComplete: false)
+    static let empty = AgentHistoryMetadataSnapshot(generation: 0, sessions: [], isComplete: false, removals: .unknown)
 }
 
 /// Keeps the indexer's working set of session summaries and turns it into snapshots.
@@ -79,7 +105,7 @@ struct AgentHistoryMetadataSnapshotBuilder: Sendable {
     /// A new snapshot with the next generation.
     mutating func build(
         isComplete: Bool,
-        removedKeys: Set<AgentHistorySessionKey> = []
+        removals: AgentHistoryRemovals = .known([])
     ) -> AgentHistoryMetadataSnapshot {
         generation &+= 1
         let sorted = sessionsByID.values.sorted { lhs, rhs in
@@ -89,7 +115,7 @@ struct AgentHistoryMetadataSnapshotBuilder: Sendable {
             return lhs.id > rhs.id
         }
         return AgentHistoryMetadataSnapshot(
-            generation: generation, sessions: sorted, isComplete: isComplete, removedKeys: removedKeys)
+            generation: generation, sessions: sorted, isComplete: isComplete, removals: removals)
     }
 
     private static func isVisible(_ session: AgentHistorySessionSummary) -> Bool {

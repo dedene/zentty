@@ -17,6 +17,16 @@ final class AgentHistoryPaletteServicesAdapterTests: XCTestCase {
 
         XCTAssertEqual(adapter.recentSessions(scope: .all, limit: 10), [])
         XCTAssertEqual(adapter.liveSessions(for: []), [])
+        let live = LiveAgentSessionLocation(
+            key: key, windowID: WindowID("window"), worklaneID: WorklaneID("worklane"), paneID: PaneID("pane"),
+            tool: .claudeCode, rawSessionID: sessionID, pid: 42, paneDisplayName: "Fix sidebar",
+            worklaneDisplayName: "zentty", windowTitle: "Zentty", workingDirectory: projectPath,
+            updatedAt: Date(timeIntervalSince1970: 1_800_000_000), matchSource: .status
+        )
+        XCTAssertEqual(
+            adapter.liveSessions(for: [live]), [.hidden],
+            "without an index nothing says the session isn't removed, disabled or excluded"
+        )
         XCTAssertEqual(adapter.indexedSessionCount(scope: .all), 0)
         XCTAssertEqual(adapter.tokenizer(), .none)
         XCTAssertEqual(adapter.metadataHits(for: query, context: context, limit: 20).results, [])

@@ -988,19 +988,26 @@ private func libghosttyConfirmReadClipboardCallback(
         available: available,
         canRemember: confirm.can_remember
     )
+    // A user paste only ever reaches this callback on the main thread, inside the call that started it.
+    let heldPaste = kind == .paste
+        ? MainActorShim.assumeIsolated { owner.holdUserPasteForConfirmation() }
+        : nil
     // libghostty keeps the request alive until it is completed or denied, so it can outlive this call.
     let pending = LibghosttyPendingClipboardRequest(state: state)
     DispatchQueue.main.async { [weak owner] in
         guard let owner else {
+            heldPaste?.settle(delivered: false)
             return
         }
         TerminalClipboardConfirmationAlert.present(confirmation, window: owner.hostWindow) { [weak owner] allowed, remember in
             // A pane closed while the prompt was up took its pending requests with it.
             guard let surface = owner?.surface else {
+                heldPaste?.settle(delivered: false)
                 return
             }
             guard allowed else {
                 ghostty_surface_deny_clipboard_request(surface, pending.state)
+                heldPaste?.settle(delivered: false)
                 return
             }
             completeLibghosttyClipboardRequest(
@@ -1011,6 +1018,7 @@ private func libghosttyConfirmReadClipboardCallback(
                 confirmed: true,
                 remember: remember
             )
+            heldPaste?.settle(delivered: true)
         }
     }
 }

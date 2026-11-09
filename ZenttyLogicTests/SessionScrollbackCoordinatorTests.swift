@@ -1,6 +1,19 @@
 import XCTest
 @testable import Zentty
 
+private final class LookupThreadRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recorded: [Bool] = []
+
+    var wereOnMainThread: [Bool] {
+        lock.withLock { recorded }
+    }
+
+    func record(isMainThread: Bool) {
+        lock.withLock { recorded.append(isMainThread) }
+    }
+}
+
 @MainActor
 final class SessionScrollbackCoordinatorTests: XCTestCase {
     private var stateDirectory: URL!
@@ -414,6 +427,119 @@ final class SessionScrollbackCoordinatorTests: XCTestCase {
 
     private var archiveDirectory: URL {
         SessionScrollbackArchive(stateDirectoryURL: stateDirectory).directoryURL
+    }
+
+    func test_a_save_keeps_files_a_set_aside_snapshot_names() throws {
+        try writeArchiveFile("pn_old-L0.txt")
+        try writeArchiveFile("pn_gone-L0.txt")
+        coordinator.preservedFileNamesProvider = { ["pn_old-L0.txt"] }
+
+        _ = coordinator.prepareForSave(SessionScrollbackTestFixtures.recipe(paneIDs: ["pn_1"]), finalSave: true)
+
+        XCTAssertEqual(try archiveContents(), ["pn_old-L0.txt"])
+    }
+
+    /// The default window a set-aside launch opens is not worth saving, and
+    /// that save discards the output of the workspace it replaces.
+    func test_discarding_an_empty_workspace_keeps_files_a_set_aside_snapshot_names() throws {
+        try writeArchiveFile("pn_old-L0.txt")
+        try writeArchiveFile("pn_gone-L0.txt")
+        coordinator.preservedFileNamesProvider = { ["pn_old-L0.txt"] }
+
+        coordinator.discardAll(synchronously: true)
+
+        XCTAssertEqual(try archiveContents(), ["pn_old-L0.txt"])
+    }
+
+    /// Turning saved output off promises to delete all of it.
+    func test_turning_scrollback_off_deletes_files_a_set_aside_snapshot_names() throws {
+        try writeArchiveFile("pn_old-L0.txt")
+        coordinator.preservedFileNamesProvider = { ["pn_old-L0.txt"] }
+
+        coordinator.setEnabled(false)
+        coordinator.waitForPendingWritesForTesting()
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: try fileURL("pn_old-L0.txt").path))
+    }
+
+    /// Another instance can set a snapshot aside long after this one launched,
+    /// with this one idle and holding no reference to the file.
+    func test_a_save_keeps_files_of_a_snapshot_set_aside_after_launch() throws {
+        try writeArchiveFile("pn_old-L0.txt")
+        try writeArchiveFile("pn_gone-L0.txt")
+        coordinator.preservedFileNamesProvider = makeSetAsideLookup()
+        try writeSetAsideSnapshot(naming: "pn_old-L0.txt")
+
+        _ = coordinator.prepareForSave(SessionScrollbackTestFixtures.recipe(paneIDs: ["pn_1"]))
+        coordinator.waitForPendingWritesForTesting()
+
+        XCTAssertEqual(try archiveContents(), ["pn_old-L0.txt"])
+    }
+
+    func test_discarding_keeps_files_of_a_snapshot_set_aside_after_launch() throws {
+        try writeArchiveFile("pn_old-L0.txt")
+        try writeArchiveFile("pn_gone-L0.txt")
+        coordinator.preservedFileNamesProvider = makeSetAsideLookup()
+        try writeSetAsideSnapshot(naming: "pn_old-L0.txt")
+
+        coordinator.discardAll()
+        coordinator.waitForPendingWritesForTesting()
+
+        XCTAssertEqual(try archiveContents(), ["pn_old-L0.txt"])
+    }
+
+    func test_turning_scrollback_off_deletes_files_of_a_snapshot_set_aside_after_launch() throws {
+        try writeArchiveFile("pn_old-L0.txt")
+        coordinator.preservedFileNamesProvider = makeSetAsideLookup()
+        try writeSetAsideSnapshot(naming: "pn_old-L0.txt")
+
+        coordinator.setEnabled(false)
+        coordinator.waitForPendingWritesForTesting()
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: try fileURL("pn_old-L0.txt").path))
+    }
+
+    /// A disabled coordinator has nothing saved to keep, which is how quitting
+    /// with session restore off deletes the output.
+    func test_discarding_with_saved_output_off_deletes_files_of_a_set_aside_snapshot() throws {
+        coordinator.setEnabled(false)
+        coordinator.waitForPendingWritesForTesting()
+        coordinator.preservedFileNamesProvider = makeSetAsideLookup()
+        try writeArchiveFile("pn_old-L0.txt")
+        try writeSetAsideSnapshot(naming: "pn_old-L0.txt")
+
+        coordinator.discardAll(synchronously: true)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: try fileURL("pn_old-L0.txt").path))
+    }
+
+    func test_the_set_aside_lookup_runs_off_the_main_thread_on_every_save() {
+        let lookups = LookupThreadRecorder()
+        coordinator.preservedFileNamesProvider = {
+            lookups.record(isMainThread: Thread.isMainThread)
+            return []
+        }
+        let recipe = SessionScrollbackTestFixtures.recipe(paneIDs: ["pn_1"])
+
+        _ = coordinator.prepareForSave(recipe)
+        _ = coordinator.prepareForSave(recipe)
+        coordinator.waitForPendingWritesForTesting()
+
+        XCTAssertEqual(lookups.wereOnMainThread, [false, false])
+    }
+
+    private func makeSetAsideLookup() -> @Sendable () -> Set<String> {
+        let store = SessionRestoreStore(stateDirectoryURL: stateDirectory)
+        return { store.setAsideScrollbackFileNames() }
+    }
+
+    private func writeSetAsideSnapshot(naming fileName: String) throws {
+        try Data(#"{"workspace":{"windows":[{"panes":[{"scrollbackFile":"\#(fileName)"}]}]}}"#.utf8)
+            .write(to: stateDirectory.appendingPathComponent("restore-snapshot.set-aside-1.json"))
+    }
+
+    private func writeArchiveFile(_ name: String) throws {
+        try coordinator.archive.write("saved output\n", fileName: name)
     }
 
     private func fileURL(_ name: String) throws -> URL {

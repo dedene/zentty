@@ -494,12 +494,19 @@ final class GhosttyThemeWatcher {
     private let queue = DispatchQueue(label: "com.zentty.ghostty-theme-watcher")
     private var handles: [WatchHandle] = []
     private var watchedPaths: Set<String> = []
+    /// Callers run on the main actor while file events run on `queue`, so every
+    /// access goes through `replaceDebounceWorkItem(with:)`. A lock rather than
+    /// `queue.sync`: deinit can run on `queue` when a work item drops the last
+    /// reference, and syncing there would deadlock.
+    private let debounceLock = NSLock()
     private var debounceWorkItem: DispatchWorkItem?
 
     func watch(urls: [URL]) {
         let normalizedURLs = Set(urls.map { normalizedWatchURL(for: $0).path })
 
-        stop()
+        // Keeps a pending notification: a refresh re-watches on every theme
+        // resolve, and that must not swallow the edit that is still debouncing.
+        tearDownSources()
         watchedPaths = normalizedURLs
 
         for path in normalizedURLs.sorted() {
@@ -526,15 +533,36 @@ final class GhosttyThemeWatcher {
     }
 
     func stop() {
-        debounceWorkItem?.cancel()
-        debounceWorkItem = nil
+        replaceDebounceWorkItem(with: nil)
         watchedPaths = []
+        tearDownSources()
+    }
+
+    private func tearDownSources() {
         handles.forEach { $0.source.cancel() }
         handles.removeAll()
     }
 
+    private func replaceDebounceWorkItem(with workItem: DispatchWorkItem?) {
+        let previous = debounceLock.withLock {
+            let previous = debounceWorkItem
+            debounceWorkItem = workItem
+            return previous
+        }
+        previous?.cancel()
+    }
+
     deinit {
         stop()
+    }
+
+    /// Runs the file event handler's work on the watcher queue. A real write
+    /// can't be ordered against a following `watch` call, since the kernel
+    /// event may arrive after the source it belonged to was cancelled.
+    func simulateFileEventForTesting() {
+        queue.sync {
+            scheduleChangeNotification()
+        }
     }
 
     private func normalizedWatchURL(for url: URL) -> URL {
@@ -546,7 +574,6 @@ final class GhosttyThemeWatcher {
     }
 
     private func scheduleChangeNotification() {
-        debounceWorkItem?.cancel()
         let workItem = DispatchWorkItem { [weak self] in
             let callback = self?.onChange
             guard let callback else { return }
@@ -554,7 +581,7 @@ final class GhosttyThemeWatcher {
                 callback()
             }
         }
-        debounceWorkItem = workItem
+        replaceDebounceWorkItem(with: workItem)
         queue.asyncAfter(deadline: .now() + 0.15, execute: workItem)
     }
 }

@@ -1,0 +1,15 @@
+{"t": 0.0, "title": "✳ Claude Code"}
+{"hook": {"cwd": "$REPO", "hook_event_name": "SessionStart", "model": "claude-haiku-5-5", "session_id": "session-1", "source": "startup", "transcript_path": "$SESSION.jsonl"}, "t": 0.06}
+{"t": 0.09, "title": "◐ Claude Code"}
+{"hook": {"cwd": "$REPO", "hook_event_name": "UserPromptSubmit", "permission_mode": "default", "prompt": "For an integration hook regression test, create a file named ZENTTY_AGENT_BENCH_APPROVAL_OK in the current directory using the Write tool. Put the text ZENTTY_AGENT_BENCH_APPROVAL_OK in the file.", "session_id": "session-1", "transcript_path": "$SESSION.jsonl"}, "t": 0.12}
+{"t": 1.03, "title": "◑ Claude Code"}
+{"t": 1.11, "title": "◑ ZENTTY_AGENT_BENCH_APPROVAL_OK file"}
+{"hook": {"cwd": "$REPO", "hook_event_name": "PreToolUse", "permission_mode": "default", "session_id": "session-1", "tool_input": {"file_path": "$REPO/ZENTTY_AGENT_BENCH_APPROVAL_OK"}, "tool_name": "Write", "tool_use_id": "tool-1", "transcript_path": "$SESSION.jsonl"}, "t": 1.84}
+{"t": 1.86, "title": "✳ ZENTTY_AGENT_BENCH_APPROVAL_OK file"}
+{"hook": {"cwd": "$REPO", "hook_event_name": "PermissionRequest", "permission_mode": "default", "session_id": "session-1", "tool_input": {"file_path": "$REPO/ZENTTY_AGENT_BENCH_APPROVAL_OK"}, "tool_name": "Write", "transcript_path": "$SESSION.jsonl"}, "t": 1.88}
+{"input": "approve", "t": 3.88}
+{"t": 3.9, "title": "◑ ZENTTY_AGENT_BENCH_APPROVAL_OK file"}
+{"hook": {"cwd": "$REPO", "hook_event_name": "PostToolUse", "permission_mode": "default", "session_id": "session-1", "tool_input": {"file_path": "$REPO/ZENTTY_AGENT_BENCH_APPROVAL_OK"}, "tool_name": "Write", "tool_response": {"type": "create"}, "tool_use_id": "tool-1", "transcript_path": "$SESSION.jsonl"}, "t": 3.93}
+{"t": 4.87, "title": "◐ ZENTTY_AGENT_BENCH_APPROVAL_OK file"}
+{"hook": {"cwd": "$REPO", "hook_event_name": "Stop", "permission_mode": "default", "session_id": "session-1", "transcript_path": "$SESSION.jsonl"}, "t": 5.39}
+{"t": 5.4, "title": "✳ ZENTTY_AGENT_BENCH_APPROVAL_OK file"}

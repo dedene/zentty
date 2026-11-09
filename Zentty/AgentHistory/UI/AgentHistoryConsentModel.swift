@@ -208,6 +208,7 @@ extension AgentHistoryConsentModel {
     static let addFolderTitle = "Add Folder…"
     static let raisedRetentionText = "Claude Code keeps conversations for 365 days."
     static let excludedFoldersSaveError = "Couldn't save the excluded folders; nothing was indexed."
+    static let stateNotSavedError = "Zentty couldn't save Agent History's settings, so nothing was indexed. Check that your disk has free space, then try again."
     /// Also the Settings alert's message when turning on is refused for the same reason.
     static let configUnreadableError = "Zentty can't read config.toml, so it doesn't know which folders you excluded. Fix the file, then try again."
 

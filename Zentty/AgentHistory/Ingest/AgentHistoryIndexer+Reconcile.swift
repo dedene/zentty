@@ -360,16 +360,17 @@ extension AgentHistoryIndexer {
         guard let store else {
             return
         }
-        for id in sourceOrder {
+        for id in sourceOrder where !isWritingSuspended {
             guard let sourceState = sourceStates[id], let version = sourceState.pendingAdapterVersion else {
                 continue
             }
             do {
+                try beforeHousekeepingWriteForTesting?(.adapterVersion)
                 try store.setAdapterVersion(sourceID: id, version)
                 sourceState.pendingAdapterVersion = nil
-            } catch let error as AgentHistoryDatabaseError {
-                AgentHistoryLog.indexer.error("Agent History adapter version not saved \(error.description, privacy: .public)")
-            } catch {}
+            } catch {
+                logWriteFailure(error, action: "save the adapter version")
+            }
         }
     }
 

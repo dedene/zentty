@@ -1663,6 +1663,26 @@ final class WindowChromeView: NSView {
         focusedProxyIconView.setDragSessionActiveForTesting(active)
     }
 
+    func releaseFocusedProxyIconMouseUpForTesting() {
+        focusedProxyIconView.restoreWindowDragSuppressionIfNeeded()
+    }
+
+    func endFocusedProxyIconDragSessionForTesting() {
+        focusedProxyIconView.finishDragSession()
+    }
+
+#if DEBUG
+    var focusedProxyIconImageAlphaValueForTesting: CGFloat { focusedProxyIconView.imageAlphaValueForTesting }
+
+    func beginFocusedProxyIconPendingResolveForTesting() -> UUID {
+        focusedProxyIconView.beginPendingResolveForTesting()
+    }
+
+    func finishFocusedProxyIconCrossfadeFadeOutForTesting(to image: NSImage, token: UUID) {
+        focusedProxyIconView.finishCrossfadeFadeOutForTesting(to: image, token: token)
+    }
+#endif
+
     func acceptsWindowDragForTesting(at point: NSPoint) -> Bool {
         guard let hitView = hitTest(point) else {
             return false
@@ -1735,6 +1755,8 @@ private final class WindowChromeProxyIconView: NSView, NSDraggingSource {
     private var currentRenderSize: NSSize = .zero
     private(set) var contentTintColor: NSColor?
     private var suppressedWindow: NSWindow?
+    private var heldSuppressionHolders: Set<WindowDragSuppressionHolder> = []
+    /// Only for plain NSWindows; `ProxyWindowDragSuppressionControlling` windows own their baseline.
     private var previousWindowMovableState: Bool?
     private var isDragSessionActive = false
     private var didArmWindowDragSuppression = false
@@ -1806,10 +1828,8 @@ private final class WindowChromeProxyIconView: NSView, NSDraggingSource {
     }
 
     override func mouseEntered(with event: NSEvent) {
-        guard currentDirectoryURL != nil, let window, window.isMovable else { return }
-        previousWindowMovableState = window.isMovable
-        suppressedWindow = window
-        window.isMovable = false
+        guard currentDirectoryURL != nil, let window, !heldSuppressionHolders.contains(.proxyHover) else { return }
+        holdWindowDragging(.proxyHover, on: window)
     }
 
     override func mouseExited(with event: NSEvent) {
@@ -1916,7 +1936,7 @@ private final class WindowChromeProxyIconView: NSView, NSDraggingSource {
                       self.cwdPath == trimmedPath else {
                     return
                 }
-                self.crossfade(to: image)
+                self.crossfade(to: image, token: token)
             }
         }
     }
@@ -1938,21 +1958,43 @@ private final class WindowChromeProxyIconView: NSView, NSDraggingSource {
         needsLayout = true
     }
 
-    private func crossfade(to image: NSImage) {
+    private func crossfade(to image: NSImage, token: UUID) {
         NSAnimationContext.runAnimationGroup { context in
             context.duration = Self.crossfadeHalfDuration
             iconView.animator().alphaValue = 0
         } completionHandler: { [weak self] in
-            guard let self else { return }
-            self.applyProjectIcon(image)
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = Self.crossfadeHalfDuration
-                self.iconView.animator().alphaValue = 1
-            }
+            self?.finishCrossfadeFadeOut(to: image, token: token)
+        }
+    }
+
+    private func finishCrossfadeFadeOut(to image: NSImage, token: UUID) {
+        guard pendingResolveToken == token else {
+            iconView.alphaValue = 1
+            return
+        }
+
+        applyProjectIcon(image)
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = Self.crossfadeHalfDuration
+            iconView.animator().alphaValue = 1
         }
     }
 
     var image: NSImage? { iconView.image }
+
+#if DEBUG
+    var imageAlphaValueForTesting: CGFloat { iconView.alphaValue }
+
+    func beginPendingResolveForTesting() -> UUID {
+        let token = UUID()
+        pendingResolveToken = token
+        return token
+    }
+
+    func finishCrossfadeFadeOutForTesting(to image: NSImage, token: UUID) {
+        finishCrossfadeFadeOut(to: image, token: token)
+    }
+#endif
 
     func contextMenuPathsForTesting() -> [String] {
         pathMenuItems().map(\.url.path)
@@ -2060,11 +2102,23 @@ private final class WindowChromeProxyIconView: NSView, NSDraggingSource {
             return
         }
 
-        suppressedWindow = window
-        previousWindowMovableState = window.isMovable
-        if window.isMovable {
-            window.isMovable = false
+        holdWindowDragging(.proxyPress, on: window)
+    }
+
+    private func holdWindowDragging(_ holder: WindowDragSuppressionHolder, on window: NSWindow) {
+        if let controller = window as? ProxyWindowDragSuppressionControlling {
+            controller.acquireWindowDragSuppression(holder)
+        } else {
+            if heldSuppressionHolders.isEmpty {
+                previousWindowMovableState = window.isMovable
+            }
+            if window.isMovable {
+                window.isMovable = false
+            }
         }
+
+        suppressedWindow = window
+        heldSuppressionHolders.insert(holder)
     }
 
     private func maybeDisableWindowDraggingEarly() {
@@ -2090,11 +2144,14 @@ private final class WindowChromeProxyIconView: NSView, NSDraggingSource {
             return
         }
 
-        if let previousWindowMovableState, suppressedWindow.isMovable != previousWindowMovableState {
+        if let controller = suppressedWindow as? ProxyWindowDragSuppressionControlling {
+            heldSuppressionHolders.forEach(controller.releaseWindowDragSuppression)
+        } else if let previousWindowMovableState, suppressedWindow.isMovable != previousWindowMovableState {
             suppressedWindow.isMovable = previousWindowMovableState
         }
 
         self.suppressedWindow = nil
+        heldSuppressionHolders.removeAll()
         previousWindowMovableState = nil
         didArmWindowDragSuppression = false
     }
@@ -2146,6 +2203,10 @@ private final class WindowChromeProxyIconView: NSView, NSDraggingSource {
         endedAt _: NSPoint,
         operation _: NSDragOperation
     ) {
+        finishDragSession()
+    }
+
+    func finishDragSession() {
         isDragSessionActive = false
         restoreWindowDraggingIfNeeded()
         (window as? ProxyWindowDragSuppressionControlling)?.restoreProxySuppression()
@@ -2158,11 +2219,7 @@ private final class WindowChromeProxyIconView: NSView, NSDraggingSource {
     var isWindowDragSuppressedForTesting: Bool { suppressedWindow != nil }
 
     func seedWindowDragSuppressionForTesting(window: NSWindow) {
-        suppressedWindow = window
-        previousWindowMovableState = true
-        if window.isMovable {
-            window.isMovable = false
-        }
+        holdWindowDragging(.proxyHover, on: window)
     }
 
     func setDragSessionActiveForTesting(_ active: Bool) {

@@ -48,9 +48,12 @@ extension AgentHistoryViewModel {
     /// `keepsStaleContent` false drops the previous conversation rows instead of showing them
     /// until the content tier answers (they may list sessions that are now hidden).
     func runSearch(resetSelection: Bool, keepsStaleContent: Bool = true) {
+        // Off lists nothing: no indexed session, and no live pane either.
+        guard body != .historyOff else { return }
         searchGeneration &+= 1
         let previousKey = resetSelection ? nil : selectedKey
         let previousIndex = resetSelection ? nil : selectedIndex
+        let previousSessionID = selectedRow?.sessionID
 
         if parsedQuery.isEmpty {
             cancelContentSearch()
@@ -61,7 +64,7 @@ extension AgentHistoryViewModel {
             runTypedSearch(keepsStaleContent: keepsStaleContent)
         }
 
-        resolveSelection(previous: previousKey, previousIndex: previousIndex)
+        resolveSelection(previous: previousKey, previousIndex: previousIndex, previousSessionID: previousSessionID)
         checkFolders()
     }
 
@@ -70,12 +73,13 @@ extension AgentHistoryViewModel {
         return rows.firstIndex { $0.key == selectedKey }
     }
 
-    private func resolveSelection(previous: AgentHistorySessionKey?, previousIndex: Int?) {
+    private func resolveSelection(previous: AgentHistorySessionKey?, previousIndex: Int?, previousSessionID: Int64?) {
         let resolved = AgentHistoryResultMerger.resolveSelection(previous: previous, previousIndex: previousIndex, in: rows)
         let changed = resolved != selectedKey
         selectedKey = resolved
-        // A rebuild may keep the key yet change the query the preview's turns depend on.
-        if changed || previous == nil || !parsedQuery.isEmpty {
+        // A rebuild may keep the key yet change the query the preview's turns depend on, or give
+        // a live row its index row.
+        if changed || previous == nil || !parsedQuery.isEmpty || selectedRow?.sessionID != previousSessionID {
             selectionDidChange()
         }
     }

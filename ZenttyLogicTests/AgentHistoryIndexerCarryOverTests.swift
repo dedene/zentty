@@ -15,6 +15,18 @@ final class AgentHistoryIndexerCarryOverTests: XCTestCase {
         }
     }
 
+    /// Hands out scripted errors in order, then nil.
+    private final class ErrorScript: @unchecked Sendable {
+        private let lock = NSLock()
+        private var errors: [any Error]
+        init(_ errors: [any Error]) { self.errors = errors }
+        func next() -> (any Error)? {
+            lock.lock()
+            defer { lock.unlock() }
+            return errors.isEmpty ? nil : errors.removeFirst()
+        }
+    }
+
     private static func databaseError(_ kind: AgentHistoryDatabaseError.Kind, _ code: Int32) -> AgentHistoryDatabaseError {
         AgentHistoryDatabaseError(kind: kind, code: code, extendedCode: code, message: "injected")
     }
@@ -109,6 +121,37 @@ final class AgentHistoryIndexerCarryOverTests: XCTestCase {
         try assertCarriedOver(harness, indexer)
     }
 
+    /// A rebuild forgets the tombstones in memory until the new file opens; the `.starting`
+    /// publish in between must not read as "nothing is removed".
+    func test_a_rebuild_never_publishes_a_snapshot_that_lists_a_removed_live_session() throws {
+        let harness = AgentHistoryIndexerHarness(testCase: self)
+        let indexer = harness.makeIndexer()
+        try indexThreeSessions(harness, indexer)
+        flushMainQueue()
+        let alreadyPublished = harness.recorder.snapshots.count
+
+        indexer.rebuild()
+        indexer.drainSynchronouslyForTesting()
+        flushMainQueue()
+
+        let published = harness.recorder.snapshots.dropFirst(alreadyPublished)
+        XCTAssertFalse(published.isEmpty)
+        let key = AgentHistorySessionKey(agent: .claude, nativeID: "s3")
+        for snapshot in published {
+            let index = HistoryMetadataIndex(
+                snapshot: { snapshot },
+                exclusions: { AgentHistoryExclusionMatcher(folders: []) }
+            )
+            XCTAssertEqual(index.liveSessions([(key: key, workingDirectory: nil)]), [.hidden])
+        }
+    }
+
+    private func flushMainQueue() {
+        let flushed = expectation(description: "main queue flushed")
+        DispatchQueue.main.async { flushed.fulfill() }
+        wait(for: [flushed], timeout: 5)
+    }
+
     func test_failed_carry_over_restore_keeps_tombstones_in_force_and_is_retried() throws {
         let harness = AgentHistoryIndexerHarness(testCase: self)
         let indexer = harness.makeIndexer()
@@ -135,6 +178,58 @@ final class AgentHistoryIndexerCarryOverTests: XCTestCase {
 
         try assertCarriedOver(harness, indexer)
         XCTAssertEqual(try harness.count("SELECT count(*) FROM usage_carryover"), 0, "usage moved onto the stored session")
+    }
+
+    /// The start-up restore fails harmlessly, so the idle pass retries it and finds the disk full.
+    /// Idle must not paper over that with `.watching`; the disk-full retry finishes the job.
+    func test_full_disk_during_idle_housekeeping_stays_paused() throws {
+        let harness = AgentHistoryIndexerHarness(testCase: self)
+        let indexer = harness.makeIndexer()
+        let restoreErrors = ErrorScript([Self.databaseError(.busy, 5), Self.databaseError(.full, 13)])
+        indexer.beforeCarryOverRestoreForTesting = {
+            if let error = restoreErrors.next() {
+                throw error
+            }
+        }
+        try indexThreeSessions(harness, indexer)
+
+        indexer.rebuild()
+        indexer.drainSynchronouslyForTesting()
+
+        guard case .paused(.diskFull, _) = indexer.currentStatus.state else {
+            return XCTFail("expected the disk-full pause, got \(indexer.currentStatus.state)")
+        }
+        XCTAssertFalse(indexer.currentStatus.isBackfillComplete, "completion waits for the resume")
+
+        indexer.queue.sync {
+            indexer.retryAfterDiskFull()
+        }
+        indexer.drainSynchronouslyForTesting()
+
+        XCTAssertEqual(indexer.currentStatus.state, .watching)
+        XCTAssertTrue(indexer.currentStatus.isBackfillComplete)
+        try assertCarriedOver(harness, indexer)
+    }
+
+    /// Rebuild was already queued when a step found corruption: it replaces the bad file, so the
+    /// recovery queued behind it must not quarantine the fresh index.
+    func test_rebuild_cancels_a_queued_corruption_recovery() throws {
+        let harness = AgentHistoryIndexerHarness(testCase: self)
+        harness.source.setUnits([.single("s1")])
+        let indexer = harness.makeIndexer()
+        indexer.start()
+        indexer.drainSynchronouslyForTesting()
+
+        indexer.queue.sync {
+            indexer.rebuild()
+            indexer.scheduleCorruptionRecovery()
+        }
+        indexer.drainSynchronouslyForTesting()
+
+        let names = try FileManager.default.contentsOfDirectory(atPath: harness.index.paths.directoryURL.path)
+        XCTAssertEqual(names.filter(AgentHistoryPaths.isCorruptCopyName), [], "the fresh index stays in place")
+        XCTAssertEqual(indexer.currentStatus.state, .watching)
+        XCTAssertEqual(try nativeIDs(harness), ["s1"])
     }
 
     func test_merge_keeps_first_removal_time_and_largest_usage() {

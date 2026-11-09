@@ -100,6 +100,10 @@ final class PaneDragCoordinator {
 
     // MARK: - Drag State
 
+    /// Bumped by teardown. A finishing animation captures it, so a completion
+    /// outliving its drag (window detach) cannot act on whatever came next.
+    private var dragSession = 0
+
     private var draggedPaneView: PaneContainerView?
     private var originalPaneFrame: CGRect = .zero
     private var grabOffsetInContent: CGSize = .zero
@@ -862,10 +866,20 @@ final class PaneDragCoordinator {
         }
     }
 
+    /// Decides the drag: from here on, mouse-up, Esc and cursor moves arriving
+    /// during the settle or spring are refused by the `.active` guards.
+    private func enterFinishingPhase() {
+        guard case .active(let activeState) = phase else { return }
+        phase = .finishing(activeState)
+        stopEdgeScroll()
+        stopSidebarEdgeScroll()
+    }
+
     // MARK: - Cancel
 
     func cancelDrag() {
         guard case .active = phase else { return }
+        enterFinishingPhase()
 
         guard let paneStripView else {
             teardown()
@@ -874,6 +888,12 @@ final class PaneDragCoordinator {
 
         // Reparent back to viewportView so the animation target (content space) is correct
         reparentToViewportForAnimation()
+        springBackToOrigin(in: paneStripView)
+    }
+
+    /// The preview must already live in viewportView. Not phase-guarded: each
+    /// caller has entered `.finishing` and runs this once for its drag.
+    private func springBackToOrigin(in paneStripView: PaneStripView) {
         let targetCenter = CGPoint(x: originalPaneFrame.midX, y: originalPaneFrame.midY)
 
         // Clear split and sidebar state before animating back
@@ -920,10 +940,12 @@ final class PaneDragCoordinator {
         shadowAnim.duration = 0.15
 
         let stripView = paneStripView
+        let session = dragSession
 
         CATransaction.begin()
         CATransaction.setCompletionBlock {
             MainActorShim.assumeIsolated {
+                guard session == self.dragSession else { return }
                 self.dragLayer?.removeAllAnimations()
                 self.restoreDraggedPane()
                 self.teardown()
@@ -1163,9 +1185,11 @@ final class PaneDragCoordinator {
             return
         }
 
+        enterFinishingPhase()
         prepareForDropSettle()
         reparentPreviewToViewportForSettle()
 
+        let session = dragSession
         paneStripView.beginDropSettle(paneID: revealStrategy.coveredPaneID) { [weak self] in
             guard let self else { return }
 
@@ -1173,11 +1197,20 @@ final class PaneDragCoordinator {
                 in: paneStripView,
                 strategy: revealStrategy
             ) { [weak self] in
-                self?.finishInternalDrop(in: paneStripView)
+                guard let self, session == self.dragSession else { return }
+                self.finishInternalDrop(in: paneStripView)
             }
         }
 
         mutation()
+
+        // The store notifies synchronously, so a render that has not arrived
+        // is one that never will: it refused the drop because the worklane or
+        // pane moved on mid-drag. Nothing else would finish this settle.
+        if paneStripView.isAwaitingDropRender {
+            paneStripView.endDropSettle()
+            springBackToOrigin(in: paneStripView)
+        }
     }
 
     private func performInternalDropReveal(
@@ -1298,8 +1331,12 @@ final class PaneDragCoordinator {
         let isDuplicate = isOptionHeld
         let stripView = paneStripView
 
+        let session = dragSession
+
+        enterFinishingPhase()
         animateSidebarDrop(to: targetCenter) {
             MainActorShim.assumeIsolated {
+                guard session == self.dragSession else { return }
                 self.dragLayer?.removeAllAnimations()
                 self.restoreDraggedPane()
                 self.teardown()
@@ -1346,8 +1383,12 @@ final class PaneDragCoordinator {
         let isDuplicate = isOptionHeld
         let stripView = paneStripView
 
+        let session = dragSession
+
+        enterFinishingPhase()
         animateSidebarDrop(to: targetCenter) {
             MainActorShim.assumeIsolated {
+                guard session == self.dragSession else { return }
                 self.dragLayer?.removeAllAnimations()
                 self.restoreDraggedPane()
                 self.teardown()
@@ -1949,10 +1990,18 @@ final class PaneDragCoordinator {
     private func installEscapeMonitor() {
         guard escapeMonitor == nil else { return }
         escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let self, case .active = self.phase else { return event }
-            guard event.keyCode == 53 else { return event }
-            self.cancelDrag()
-            return nil
+            guard let self, event.keyCode == 53 else { return event }
+            switch self.phase {
+            case .active:
+                self.cancelDrag()
+                return nil
+            case .finishing:
+                // Decided, but the gesture is still on screen: Esc stays ours
+                // instead of reaching the terminal underneath.
+                return nil
+            case .idle, .pending:
+                return event
+            }
         }
     }
 
@@ -2138,10 +2187,10 @@ final class PaneDragCoordinator {
     }
 
     /// Lightweight cleanup for drop-settle: remove timers, insertion line,
-    /// split overlays, monitors — but keep the drag container, pane refs, and
-    /// isDragActive state intact for the settle animation.
+    /// split overlays, the Option monitor — but keep the drag container, pane
+    /// refs, isDragActive state, and the Esc monitor (teardown removes it) for
+    /// the settle animation.
     private func prepareForDropSettle() {
-        removeEscapeMonitor()
         removeFlagsChangedMonitor()
         stopEdgeScroll()
         stopSidebarEdgeScroll()
@@ -2200,6 +2249,9 @@ final class PaneDragCoordinator {
     // MARK: - Private — Teardown
 
     private func teardown() {
+        if case .idle = phase { return }
+        dragSession &+= 1
+
         removeEscapeMonitor()
         removeFlagsChangedMonitor()
         stopEdgeScroll()
@@ -2273,8 +2325,12 @@ final class PaneDragCoordinator {
 
 extension PaneDragPhase {
     var activeState: PaneDragActiveState? {
-        if case .active(let state) = self { return state }
-        return nil
+        switch self {
+        case .active(let state), .finishing(let state):
+            return state
+        case .idle, .pending:
+            return nil
+        }
     }
 }
 

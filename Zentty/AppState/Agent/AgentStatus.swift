@@ -124,6 +124,10 @@ enum AgentLifecycleEvent: String, Equatable, Sendable {
     /// The user stopped the turn (Escape / Ctrl-C): idle, but not a
     /// completion, so no "Agent ready".
     case interrupt
+    /// Worker and task-list news. Hooks of this kind fire around an open
+    /// prompt without answering it, so they refresh the session's task and
+    /// subagent data then and otherwise read like `update`.
+    case backgroundActivity = "background-activity"
 }
 
 enum PaneAgentState: String, Equatable, Sendable {
@@ -279,6 +283,8 @@ struct PaneAgentStatus: Equatable, Sendable {
     var origin: AgentSignalOrigin
     var interactionState: PaneInteractionState
     var interactionKind: PaneAgentInteractionKind
+    /// Identity of the stored prompt on screen, while one is.
+    var interactionPromptID: String? = nil
     var confidence: AgentSignalConfidence
     var shellActivityState: PaneShellActivityState
     var trackedPID: Int32?
@@ -300,6 +306,7 @@ struct PaneAgentStatus: Equatable, Sendable {
         origin: AgentSignalOrigin = .compatibility,
         interactionState: PaneInteractionState? = nil,
         interactionKind: PaneAgentInteractionKind? = nil,
+        interactionPromptID: String? = nil,
         confidence: AgentSignalConfidence? = nil,
         shellActivityState: PaneShellActivityState = .unknown,
         trackedPID: Int32? = nil,
@@ -320,6 +327,7 @@ struct PaneAgentStatus: Equatable, Sendable {
         self.origin = origin
         let resolvedInteractionKind = interactionKind ?? (state == .needsInput ? .genericInput : .none)
         self.interactionKind = resolvedInteractionKind
+        self.interactionPromptID = interactionPromptID
         self.interactionState = interactionState ?? (resolvedInteractionKind.requiresHumanAttention ? .awaitingHuman : .none)
         self.confidence = confidence ?? Self.defaultConfidence(for: origin)
         self.shellActivityState = shellActivityState

@@ -112,6 +112,17 @@ final class AgentHistoryIndexProgressTests: XCTestCase {
         XCTAssertEqual(closeRequests, [true])
     }
 
+    func test_key_context_says_when_the_details_cover_the_results() {
+        let model = makeModel()
+        model.start()
+        control.publish(status(.backfilling(progress(312, of: 1_284))))
+        XCTAssertFalse(AgentHistoryPanelController.keyContext(editor: nil, model: model).isIndexProgressShown)
+
+        model.toggleIndexProgress()
+
+        XCTAssertTrue(AgentHistoryPanelController.keyContext(editor: nil, model: model).isIndexProgressShown)
+    }
+
     func test_typing_returns_to_results() {
         let model = makeModel()
         model.start()

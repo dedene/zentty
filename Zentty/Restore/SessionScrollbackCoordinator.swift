@@ -36,6 +36,11 @@ final class SessionScrollbackCoordinator {
     /// Fired when a pane gained or changed its file, so the recipe references it.
     var onReferencesChanged: (() -> Void)?
     var sourcesProvider: () -> [CaptureSource] = { [] }
+    /// Looks up the files set-aside snapshots point at. No recipe references
+    /// them, so saves would purge them otherwise. Asked at every purge, on the
+    /// disk queue, because another instance can set a snapshot aside at any
+    /// time. Turning saved output off still deletes them, as it promises to.
+    var preservedFileNamesProvider: @Sendable () -> Set<String> = { [] }
 
     private let writer: SessionScrollbackWriter
     private let checkpointInterval: Duration
@@ -199,16 +204,25 @@ final class SessionScrollbackCoordinator {
         }
         fileNameByPaneID = referenced
         dirtyPaneIDs.formIntersection(savedPaneIDs)
-        writer.purge(keeping: Set(referenced.values), synchronously: finalSave)
+        writer.purge(
+            keeping: Set(referenced.values),
+            preserving: preservedFileNamesProvider,
+            synchronously: finalSave
+        )
         return recipe
     }
 
-    /// Nothing is being restored any more: drop every file. Pass
-    /// `synchronously` on quit, so the files are gone before the app exits.
+    /// Nothing is being restored any more: drop every file but the preserved
+    /// ones, or all of them with saved output off. Pass `synchronously` on
+    /// quit, so the files are gone before the app exits.
     func discardAll(synchronously: Bool = false) {
         fileNameByPaneID.removeAll()
         dirtyPaneIDs.removeAll()
-        writer.removeAll(synchronously: synchronously)
+        if isEnabled {
+            writer.discardAll(preserving: preservedFileNamesProvider, synchronously: synchronously)
+        } else {
+            writer.discardAll(synchronously: synchronously)
+        }
     }
 
     func waitForPendingWritesForTesting() {
@@ -274,15 +288,28 @@ final class SessionScrollbackWriter: @unchecked Sendable {
         }
     }
 
-    func purge(keeping: Set<String>, synchronously: Bool = false) {
+    /// `preservedFileNames` is asked here, right before the delete, so it can
+    /// see a set-aside snapshot that appeared after the purge was requested.
+    func purge(
+        keeping: Set<String>,
+        preserving preservedFileNames: @escaping @Sendable () -> Set<String>,
+        synchronously: Bool = false
+    ) {
         run(synchronously: synchronously) { [self] in
-            digestByFileName = digestByFileName.filter { keeping.contains($0.key) }
-            archive.purge(keeping: keeping)
+            purgeOnQueue(keeping: keeping.union(preservedFileNames()))
         }
     }
 
-    func removeAll(synchronously: Bool = false) {
+    func discardAll(
+        preserving preservedFileNames: @escaping @Sendable () -> Set<String> = { [] },
+        synchronously: Bool = false
+    ) {
         run(synchronously: synchronously) { [self] in
+            let preserved = preservedFileNames()
+            guard preserved.isEmpty else {
+                purgeOnQueue(keeping: preserved)
+                return
+            }
             digestByFileName.removeAll()
             archive.removeAll()
         }
@@ -290,6 +317,11 @@ final class SessionScrollbackWriter: @unchecked Sendable {
 
     func waitForPendingOperations() {
         queue.sync {}
+    }
+
+    private func purgeOnQueue(keeping: Set<String>) {
+        digestByFileName = digestByFileName.filter { keeping.contains($0.key) }
+        archive.purge(keeping: keeping)
     }
 
     private func run(synchronously: Bool, _ work: @escaping @Sendable () -> Void) {

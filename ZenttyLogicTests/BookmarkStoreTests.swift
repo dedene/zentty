@@ -77,6 +77,56 @@ final class BookmarkStoreTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: targetURL.path))
     }
 
+    func test_save_over_unreadable_symlinked_file_keeps_the_symlink() throws {
+        let (linkURL, targetURL) = try makeSymlinkedBookmarksFile()
+        let store = BookmarkStore(fileURL: linkURL)
+        store.upsert(WorkspaceTemplate(name: "Demo", kind: .bookmark))
+        try Data("{ broken hand edit".utf8).write(to: targetURL)
+
+        store.upsert(WorkspaceTemplate(name: "Another", kind: .bookmark))
+
+        XCTAssertEqual(
+            try FileManager.default.destinationOfSymbolicLink(atPath: linkURL.path),
+            targetURL.path
+        )
+        XCTAssertEqual(Set(BookmarkStore(fileURL: linkURL).templates.map(\.name)), ["Demo", "Another"])
+        let backup = try XCTUnwrap(
+            try corruptBackupURLs(in: targetURL.deletingLastPathComponent()).first
+        )
+        XCTAssertEqual(try String(contentsOf: backup, encoding: .utf8), "{ broken hand edit")
+    }
+
+    func test_loading_corrupt_symlinked_file_keeps_the_symlink() throws {
+        let (linkURL, targetURL) = try makeSymlinkedBookmarksFile()
+        try Data("not-json".utf8).write(to: targetURL)
+
+        let store = BookmarkStore(fileURL: linkURL)
+        store.upsert(WorkspaceTemplate(name: "Demo", kind: .bookmark))
+
+        XCTAssertEqual(
+            try FileManager.default.destinationOfSymbolicLink(atPath: linkURL.path),
+            targetURL.path
+        )
+        XCTAssertEqual(BookmarkStore(fileURL: linkURL).templates.map(\.name), ["Demo"])
+        XCTAssertEqual(try corruptBackupURLs(in: targetURL.deletingLastPathComponent()).count, 1)
+    }
+
+    private func makeSymlinkedBookmarksFile() throws -> (link: URL, target: URL) {
+        let repoDirURL = temporaryDirectoryURL.appendingPathComponent("dotfiles", isDirectory: true)
+        let homeDirURL = temporaryDirectoryURL.appendingPathComponent("home", isDirectory: true)
+        try FileManager.default.createDirectory(at: repoDirURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: homeDirURL, withIntermediateDirectories: true)
+        let targetURL = repoDirURL.appendingPathComponent("bookmarks.json")
+        let linkURL = homeDirURL.appendingPathComponent("bookmarks.json")
+        try FileManager.default.createSymbolicLink(at: linkURL, withDestinationURL: targetURL)
+        return (linkURL, targetURL)
+    }
+
+    private func corruptBackupURLs(in directoryURL: URL) throws -> [URL] {
+        try FileManager.default.contentsOfDirectory(at: directoryURL, includingPropertiesForKeys: nil)
+            .filter { $0.lastPathComponent.contains(".corrupt-") }
+    }
+
     func test_upsert_updates_existing_template() {
         let store = BookmarkStore(fileURL: fileURL)
         let id = UUID()

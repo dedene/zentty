@@ -6,6 +6,27 @@ import XCTest
 
 @MainActor
 final class LibghosttyAdapterTests: AppKitTestCase {
+    /// Hosts the adapter's view in a real, unordered window beside a control that can take focus.
+    private func hostInUnorderedWindow(_ adapter: LibghosttyAdapter) -> (window: NSWindow, otherControl: NSTextField) {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 520),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        ).prepareForAppKitTesting()
+        addTeardownBlock {
+            window.close()
+        }
+        let contentView = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = contentView
+        let terminalView = adapter.makeTerminalView()
+        terminalView.frame = contentView.bounds
+        contentView.addSubview(terminalView)
+        let otherControl = NSTextField(frame: NSRect(x: 0, y: 0, width: 100, height: 24))
+        contentView.addSubview(otherControl)
+        return (window, otherControl)
+    }
+
     func test_make_terminal_view_returns_reusable_scroll_host_view() throws {
         let adapter = LibghosttyAdapter(runtime: LibghosttyRuntimeProviderSpy())
 
@@ -259,6 +280,38 @@ final class LibghosttyAdapterTests: AppKitTestCase {
         XCTAssertEqual(surfaceController.refreshCallCount, 1)
     }
 
+    func test_surface_activity_does_not_focus_when_other_view_is_first_responder() throws {
+        let runtime = LibghosttyRuntimeProviderSpy()
+        let adapter = LibghosttyAdapter(runtime: runtime)
+        let (window, otherControl) = hostInUnorderedWindow(adapter)
+
+        try adapter.startSession(using: TerminalSessionRequest())
+        let surfaceController = try XCTUnwrap(runtime.lastSurfaceController)
+        XCTAssertTrue(window.makeFirstResponder(otherControl))
+
+        adapter.setSurfaceActivity(TerminalSurfaceActivity(isVisible: true, isFocused: false))
+        adapter.setSurfaceActivity(TerminalSurfaceActivity(isVisible: true, isFocused: true))
+
+        XCTAssertEqual(surfaceController.focusValues.last, false)
+    }
+
+    func test_surface_activity_focuses_when_terminal_is_first_responder() throws {
+        let runtime = LibghosttyRuntimeProviderSpy()
+        let adapter = LibghosttyAdapter(runtime: runtime)
+        let (window, otherControl) = hostInUnorderedWindow(adapter)
+
+        try adapter.startSession(using: TerminalSessionRequest())
+        let surfaceController = try XCTUnwrap(runtime.lastSurfaceController)
+        let surfaceView = try XCTUnwrap(runtime.lastHostView)
+        XCTAssertTrue(window.makeFirstResponder(otherControl))
+        adapter.setSurfaceActivity(TerminalSurfaceActivity(isVisible: true, isFocused: false))
+        XCTAssertTrue(window.makeFirstResponder(surfaceView))
+
+        adapter.setSurfaceActivity(TerminalSurfaceActivity(isVisible: true, isFocused: true))
+
+        XCTAssertEqual(surfaceController.focusValues.last, true)
+    }
+
     func test_surface_activity_set_before_start_is_applied_as_initial_occlusion_visibility() throws {
         let runtime = LibghosttyRuntimeProviderSpy()
         let adapter = LibghosttyAdapter(runtime: runtime)
@@ -295,6 +348,18 @@ final class LibghosttyAdapterTests: AppKitTestCase {
         adapter.findPrevious()
 
         XCTAssertEqual(surfaceController.bindingActions, ["navigate_search:previous"])
+    }
+
+    func test_end_search_discards_queued_search_events_after_binding() throws {
+        let runtime = LibghosttyRuntimeProviderSpy()
+        let adapter = LibghosttyAdapter(runtime: runtime)
+
+        try adapter.startSession(using: TerminalSessionRequest())
+        let surfaceController = try XCTUnwrap(runtime.lastSurfaceController)
+
+        adapter.endSearch()
+
+        XCTAssertEqual(surfaceController.searchCallLog, ["end_search", "discard_queued_search_events"])
     }
 
     func test_submit_command_pastes_text_then_fires_return_key_outside_paste() throws {
@@ -361,6 +426,31 @@ final class LibghosttyAdapterTests: AppKitTestCase {
         runtime.lastEventHandler?(.progressReport(report))
 
         XCTAssertEqual(receivedEvent, .progressReport(report))
+    }
+
+    func test_close_suppresses_surface_closed_event() throws {
+        let runtime = LibghosttyRuntimeProviderSpy()
+        let adapter = LibghosttyAdapter(runtime: runtime)
+        var receivedEvents: [TerminalEvent] = []
+        adapter.eventDidOccur = { receivedEvents.append($0) }
+
+        try adapter.startSession(using: TerminalSessionRequest())
+        adapter.close()
+        runtime.lastEventHandler?(.surfaceClosed)
+
+        XCTAssertTrue(receivedEvents.isEmpty)
+    }
+
+    func test_shell_exit_still_forwards_surface_closed() throws {
+        let runtime = LibghosttyRuntimeProviderSpy()
+        let adapter = LibghosttyAdapter(runtime: runtime)
+        var receivedEvents: [TerminalEvent] = []
+        adapter.eventDidOccur = { receivedEvents.append($0) }
+
+        try adapter.startSession(using: TerminalSessionRequest())
+        runtime.lastEventHandler?(.surfaceClosed)
+
+        XCTAssertEqual(receivedEvents, [.surfaceClosed])
     }
 
     func test_repeated_surface_activity_does_not_resend_focus_or_refresh() throws {
@@ -577,6 +667,23 @@ final class LibghosttyAdapterTests: AppKitTestCase {
         XCTAssertEqual(runtime.receivedConfigTemplates.count, 2)
         XCTAssertNil(runtime.receivedConfigTemplates[0])
         XCTAssertEqual(runtime.receivedConfigTemplates[1]?.context, inheritedConfig.context)
+    }
+
+    func test_prepare_session_start_keeps_template_when_source_is_gone() throws {
+        let runtime = LibghosttyRuntimeProviderSpy()
+        let sourceAdapter = LibghosttyAdapter(runtime: runtime)
+        let deferredAdapter = LibghosttyAdapter(runtime: runtime)
+
+        try sourceAdapter.startSession(using: TerminalSessionRequest())
+        runtime.lastSurfaceController?.inheritedConfigContext = GHOSTTY_SURFACE_CONTEXT_SPLIT
+
+        deferredAdapter.prepareSessionStart(from: sourceAdapter, context: .split)
+        sourceAdapter.close()
+        deferredAdapter.prepareSessionStart(from: sourceAdapter, context: .split)
+        deferredAdapter.prepareSessionStart(from: nil, context: .split)
+        try deferredAdapter.startSession(using: TerminalSessionRequest())
+
+        XCTAssertEqual(runtime.receivedConfigTemplates.last??.context, GHOSTTY_SURFACE_CONTEXT_SPLIT)
     }
 
     func test_prepare_session_start_requests_inherited_config_for_requested_context() throws {
@@ -1115,6 +1222,7 @@ private final class LibghosttySurfaceControllerSpy: LibghosttySurfaceControlling
     private(set) var focusValues: [Bool] = []
     private(set) var occlusionVisibilityValues: [Bool] = []
     private(set) var bindingActions: [String] = []
+    private(set) var searchCallLog: [String] = []
     private(set) var inheritedConfigRequests: [ghostty_surface_context_e] = []
     private(set) var sendKeyCallCount = 0
     private(set) var translatedKeyEvents: [NSEvent] = []
@@ -1154,8 +1262,10 @@ private final class LibghosttySurfaceControllerSpy: LibghosttySurfaceControlling
     func cancelPromptInput() { cancelPromptInputCallCount += 1 }
     func performBindingAction(_ action: String) -> Bool {
         bindingActions.append(action)
+        searchCallLog.append(action)
         return true
     }
+    func discardQueuedSearchEvents() { searchCallLog.append("discard_queued_search_events") }
     func hasSelection() -> Bool { selectionPresent }
     func close() {}
     func inheritedConfig(for context: ghostty_surface_context_e) -> ghostty_surface_config_s? {

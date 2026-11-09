@@ -52,6 +52,9 @@ struct AgentStatusPayload: Equatable, Sendable {
     let text: String?
     let lifecycleEvent: AgentLifecycleEvent?
     let interactionKind: PaneAgentInteractionKind?
+    /// Identity of the stored prompt this payload shows. See
+    /// `ClaudeHookSessionRecord.structuredInteractionPromptID`.
+    let interactionPromptID: String?
     let confidence: AgentSignalConfidence?
     let sessionID: String?
     let parentSessionID: String?
@@ -177,6 +180,7 @@ struct AgentStatusPayload: Equatable, Sendable {
         if let agentModel { userInfo["agentModel"] = agentModel }
         if let agentMetadataPID { userInfo["agentMetadataPID"] = NSNumber(value: agentMetadataPID) }
         if let isClaudeRemoteControlActive { userInfo["isClaudeRemoteControlActive"] = isClaudeRemoteControlActive }
+        if let interactionPromptID { userInfo["interactionPromptID"] = interactionPromptID }
         return userInfo
     }
 
@@ -196,6 +200,7 @@ struct AgentStatusPayload: Equatable, Sendable {
         text: String?,
         lifecycleEvent: AgentLifecycleEvent? = nil,
         interactionKind: PaneAgentInteractionKind? = nil,
+        interactionPromptID: String? = nil,
         confidence: AgentSignalConfidence? = nil,
         sessionID: String? = nil,
         parentSessionID: String? = nil,
@@ -223,6 +228,7 @@ struct AgentStatusPayload: Equatable, Sendable {
         self.text = text
         self.lifecycleEvent = lifecycleEvent
         self.interactionKind = interactionKind
+        self.interactionPromptID = interactionPromptID
         self.confidence = confidence
         self.sessionID = sessionID
         self.parentSessionID = parentSessionID
@@ -290,6 +296,7 @@ struct AgentStatusPayload: Equatable, Sendable {
             text: userInfo["text"] as? String,
             lifecycleEvent: (userInfo["lifecycleEvent"] as? String).flatMap(AgentLifecycleEvent.init(rawValue:)),
             interactionKind: (userInfo["interactionKind"] as? String).flatMap(PaneAgentInteractionKind.init(rawValue:)),
+            interactionPromptID: userInfo["interactionPromptID"] as? String,
             confidence: (userInfo["confidence"] as? String).flatMap(AgentSignalConfidence.init(rawValue:)),
             sessionID: userInfo["sessionID"] as? String,
             parentSessionID: userInfo["parentSessionID"] as? String,
@@ -328,6 +335,7 @@ extension AgentStatusPayload {
             text: text,
             lifecycleEvent: lifecycleEvent,
             interactionKind: interactionKind,
+            interactionPromptID: interactionPromptID,
             confidence: confidence,
             sessionID: sessionID,
             parentSessionID: parentSessionID,

@@ -48,6 +48,8 @@ struct FloatDragSession: Equatable, Sendable {
     let startFrame: CGRect
     private(set) var lastMouse: CGPoint
     private var estimator = FloatDragVelocityEstimator()
+    /// Latched: a drag that comes back to its start is still a drag.
+    private var hasExceededClickThreshold = false
 
     init(startMouse: CGPoint, startFrame: CGRect, timestamp: TimeInterval) {
         self.startMouse = startMouse
@@ -59,6 +61,9 @@ struct FloatDragSession: Equatable, Sendable {
     mutating func move(to point: CGPoint, timestamp: TimeInterval) {
         lastMouse = point
         estimator.record(FloatDragSample(timestamp: timestamp, point: point))
+        if hypot(translation.dx, translation.dy) >= Self.clickThreshold {
+            hasExceededClickThreshold = true
+        }
     }
 
     /// Pointer translation from drag start to the latest sample.
@@ -85,6 +90,6 @@ struct FloatDragSession: Equatable, Sendable {
 
     /// True when the pointer never moved meaningfully — a click, not a drag.
     var isClick: Bool {
-        hypot(translation.dx, translation.dy) < Self.clickThreshold
+        !hasExceededClickThreshold
     }
 }

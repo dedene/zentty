@@ -70,6 +70,7 @@ extension AgentHistoryViewModel {
     static let copiedResumeCommandMessage = "Copied resume command"
     static let copiedSessionIDMessage = "Copied session ID"
     static let removedMessage = "Removed from Agent History. Restore in Settings."
+    static let removeFailedMessage = "Couldn't remove this session from Agent History right now."
 
     // MARK: - Keyboard
 
@@ -104,6 +105,8 @@ extension AgentHistoryViewModel {
             cancelFolderSheet()
         case .consentConfirm:
             confirmConsent()
+        case .openSettings:
+            openProblemLink()
         }
     }
 
@@ -293,18 +296,24 @@ extension AgentHistoryViewModel {
         return URL(fileURLWithPath: path)
     }
 
-    /// Drops the row at once and tombstones the session; it can be restored in Settings.
+    /// Drops the row at once and tombstones the session; it can be restored in Settings. The
+    /// index can refuse (standing by, disk full): the row then comes back and the message says so.
     func removeFromHistory(_ key: AgentHistorySessionKey) {
-        let currentRows = rows
-        guard let index = currentRows.firstIndex(where: { $0.key == key }), currentRows[index].summary != nil else {
-            return
+        guard rows.first(where: { $0.key == key })?.summary != nil else { return }
+        dropRow(key)
+        // Last: the answer can come back synchronously and rebuild the rows.
+        services.control.removeSession(key) { [weak self] removed in
+            self?.removalCompleted(key, removed: removed)
         }
+    }
+
+    private func dropRow(_ key: AgentHistorySessionKey) {
+        guard let index = rows.firstIndex(where: { $0.key == key }) else { return }
         sections = sections.compactMap { section in
             var section = section
             section.rows.removeAll { $0.key == key }
             return section.rows.isEmpty ? nil : section
         }
-        services.control.removeSession(key)
         copySessionIDOfferKeys.remove(key)
         if folderSheet?.key == key {
             folderSheet = nil
@@ -314,12 +323,35 @@ extension AgentHistoryViewModel {
             selectionDidChange()
         }
         refreshFolderGoneKeys()
+    }
+
+    /// The palette may have closed (`stop` keeps the body) or lost access since the drop.
+    private func removalCompleted(_ key: AgentHistorySessionKey, removed: Bool) {
+        guard isStarted, body == .results else { return }
+        guard removed else {
+            showTransientMessage(Self.removeFailedMessage)
+            // Nothing was published, so this finds the row where it was.
+            runSearch(resetSelection: false)
+            return
+        }
+        dropRemovedSessions([key])
         showTransientMessage(Self.removedMessage)
+    }
+
+    /// A content response may have listed these sessions again while their removal ran, and one
+    /// still out may read them. The indexer published first, so the metadata tier is current.
+    func dropRemovedSessions(_ keys: Set<AgentHistorySessionKey>) {
+        for key in keys {
+            dropRow(key)
+        }
+        if contentPhase == .pending {
+            runSearch(resetSelection: false)
+        }
     }
 
     // MARK: - Footer and messages
 
-    /// The amber footer link: Settings › Agent History.
+    /// The amber footer link and the Open Settings buttons: Settings › Agent History.
     func openProblemLink() {
         onRequestSettings?()
     }

@@ -5,6 +5,9 @@ import XCTest
 final class MainWindowControllerTests: XCTestCase {
     private var controller: MainWindowController?
     private var testDefaultsSuiteNames: [String] = []
+    private let peekWorklaneID = WorklaneID("wl-peek")
+    private let peekFirstPaneID = PaneID("pane-peek-a")
+    private let peekSecondPaneID = PaneID("pane-peek-b")
 
     private enum TrafficLightOverlayIdentifier {
         static let close = "trafficLightOverlay.close"
@@ -471,6 +474,16 @@ final class MainWindowControllerTests: XCTestCase {
         waitForLayout("window closed", delay: 0.05)
 
         XCTAssertFalse(controller.window.isVisible)
+    }
+
+    func test_window_should_close_keeps_terminate_hook_quiet_for_unregistered_controller() {
+        let controller = makeController()
+        var terminationRequests = 0
+        controller.requestApplicationTermination = { terminationRequests += 1 }
+
+        XCTAssertTrue(controller.windowShouldClose(controller.window))
+
+        XCTAssertEqual(terminationRequests, 0)
     }
 
     func test_show_settings_window_opens_settings_shell_on_general() throws {
@@ -959,6 +972,46 @@ final class MainWindowControllerTests: XCTestCase {
         XCTAssertEqual(controller.activePaneTitles, ["shell"])
     }
 
+    func test_worklane_change_during_drag_renders_after_cancel() throws {
+        let controller = makeController()
+        controller.showWindow(nil)
+        waitForLayout()
+
+        let root = controller.rootViewControllerForTesting
+        let paneStripView = root.appCanvasViewForTesting.paneStripView
+        let firstWorklanePaneID = try XCTUnwrap(root.focusedPaneIDForTesting)
+        controller.newWorklane(nil)
+        waitForLayout("worklane settled", delay: 0.05)
+        let secondWorklanePaneID = try XCTUnwrap(root.focusedPaneIDForTesting)
+        XCTAssertNotEqual(firstWorklanePaneID, secondWorklanePaneID)
+
+        let draggedPane = try XCTUnwrap(
+            paneStripView.descendantPaneViews().first(where: { $0.paneID == secondWorklanePaneID })
+        )
+        let cursor = paneStripView.convert(
+            CGPoint(x: draggedPane.frame.midX, y: draggedPane.frame.maxY - (PaneContainerView.dragZoneHeight / 2)),
+            from: draggedPane.superview
+        )
+        paneStripView.beginPaneDragForTesting(paneID: secondWorklanePaneID, cursorInStrip: cursor)
+        XCTAssertTrue(paneStripView.isDragActive)
+
+        root.routeSelectWorklane(position: 1)
+        XCTAssertEqual(root.focusedPaneIDForTesting, firstWorklanePaneID)
+        XCTAssertEqual(
+            paneStripView.descendantPaneViews().map(\.paneID), [secondWorklanePaneID],
+            "the drag owns the canvas until it ends"
+        )
+
+        paneStripView.cancelPaneDragForTesting()
+        let dragEnded = expectation(
+            for: NSPredicate { _, _ in !paneStripView.isDragActive },
+            evaluatedWith: nil
+        )
+        wait(for: [dragEnded], timeout: 5)
+
+        XCTAssertEqual(paneStripView.descendantPaneViews().map(\.paneID), [firstWorklanePaneID])
+    }
+
     func test_new_worklane_uses_reported_working_directory_of_focused_pane() throws {
         let adapterStore = MetadataAdapterStore()
         let controller = makeController(adapterStore: adapterStore)
@@ -1101,7 +1154,7 @@ final class MainWindowControllerTests: XCTestCase {
         let expectedLeadingInset = appCanvasView.leadingVisibleInset
         let expectedTrailingEdge = appCanvasView.bounds.width - paneViews[1].insetBorderInset
 
-        paneViews[1].focusTerminal()
+        rootViewController.handle(.pane(.focusRight))
         waitForLayout("focus second pane settled", delay: 0.05)
 
         paneViews = appCanvasView
@@ -1792,6 +1845,65 @@ final class MainWindowControllerTests: XCTestCase {
         XCTAssertTrue(controller.isWindowMovableForTesting)
     }
 
+    func test_proxy_hover_then_press_restores_movable_after_release() throws {
+        let controller = makeController()
+        let proxyPoint = try showProxyIconAndHover(controller)
+        let chromeView = controller.rootViewControllerForTesting.chromeView
+
+        controller.handleProxySuppressionEventForTesting(location: proxyPoint, eventType: .leftMouseDown)
+        chromeView.setFocusedProxyIconDragSessionActiveForTesting(true)
+        XCTAssertFalse(controller.isWindowMovableForTesting)
+
+        chromeView.endFocusedProxyIconDragSessionForTesting()
+        XCTAssertTrue(controller.isWindowMovableForTesting)
+    }
+
+    func test_proxy_hover_then_press_restores_movable_after_view_then_window_mouse_up() throws {
+        let controller = makeController()
+        let proxyPoint = try showProxyIconAndHover(controller)
+        let chromeView = controller.rootViewControllerForTesting.chromeView
+
+        controller.handleProxySuppressionEventForTesting(location: proxyPoint, eventType: .leftMouseDown)
+        XCTAssertFalse(controller.isWindowMovableForTesting)
+
+        // Mouse-up reaches the view first, then the tail of ProxyAwareWindow.sendEvent.
+        chromeView.releaseFocusedProxyIconMouseUpForTesting()
+        XCTAssertFalse(controller.isWindowMovableForTesting)
+
+        controller.handleProxySuppressionEventForTesting(location: proxyPoint, eventType: .leftMouseUp)
+        XCTAssertTrue(controller.isWindowMovableForTesting)
+    }
+
+    func test_proxy_hover_keeps_window_immovable_until_file_drag_ends() throws {
+        let controller = makeController()
+        let proxyPoint = try showProxyIconAndHover(controller)
+        let chromeView = controller.rootViewControllerForTesting.chromeView
+
+        controller.handleProxySuppressionEventForTesting(location: proxyPoint, eventType: .leftMouseDown)
+        chromeView.setFocusedProxyIconDragSessionActiveForTesting(true)
+
+        controller.handleProxySuppressionEventForTesting(location: proxyPoint, eventType: .leftMouseUp)
+        XCTAssertFalse(controller.isWindowMovableForTesting)
+
+        chromeView.endFocusedProxyIconDragSessionForTesting()
+        XCTAssertTrue(controller.isWindowMovableForTesting)
+    }
+
+    private func showProxyIconAndHover(_ controller: MainWindowController) throws -> NSPoint {
+        controller.showWindow(nil)
+        waitForLayout()
+
+        controller.injectFocusedPaneShellContextForTesting(path: "/tmp/project-proxy-hover-press")
+        waitForLayout("proxy context settled", delay: 0.05)
+
+        let chromeView = controller.rootViewControllerForTesting.chromeView
+        let proxyPoint = try XCTUnwrap(chromeView.focusedProxyIconLeadingPaddingPointInWindowForTesting())
+
+        chromeView.seedFocusedProxyIconWindowDragSuppressionForTesting(window: controller.window)
+        XCTAssertFalse(controller.isWindowMovableForTesting)
+        return proxyPoint
+    }
+
     func test_global_search_row_points_use_search_drag_suppression_reason_not_proxy_icon() throws {
         let controller = makeController()
         controller.showWindow(nil)
@@ -2151,6 +2263,106 @@ final class MainWindowControllerTests: XCTestCase {
             controller.rootViewControllerForTesting.paneStripStateForTesting.columns.map(\.width),
             initialWidths
         )
+    }
+
+    // MARK: - Worklane peek admission
+
+    private func makePeekController() throws -> MainWindowController {
+        let controller = makeController()
+        controller.showWindow(nil)
+        waitForLayout()
+        controller.rootViewControllerForTesting.replaceWorklanes([
+            WorklaneState(
+                id: peekWorklaneID,
+                title: nil,
+                paneStripState: PaneStripState(
+                    panes: [
+                        PaneState(id: peekFirstPaneID, title: "a"),
+                        PaneState(id: peekSecondPaneID, title: "b"),
+                    ],
+                    focusedPaneID: peekFirstPaneID
+                ),
+                auxiliaryStateByPaneID: [:]
+            ),
+        ], activeWorklaneID: peekWorklaneID)
+        waitForLayout("seeded")
+        return controller
+    }
+
+    func test_ctrl_tab_during_pane_drag_does_not_arm_peek() throws {
+        let controller = try makePeekController()
+        let root = controller.rootViewControllerForTesting
+        let strip = root.appCanvasViewForTesting.paneStripView
+        let cursor = CGPoint(x: strip.bounds.midX, y: strip.bounds.midY)
+        strip.beginPaneDragForTesting(paneID: peekFirstPaneID, cursorInStrip: cursor)
+        XCTAssertTrue(strip.isDragActive)
+
+        root.routeNextWorklane()
+        root.routePreviousWorklane()
+
+        XCTAssertFalse(root.isWorklanePeekActive, "peek swallows the drag's mouse-up from arming onward")
+        strip.endPaneDragForTesting(cursorInStrip: cursor)
+        waitForLayout("drop settled", delay: 0.4)
+    }
+
+    func test_ctrl_tab_during_divider_drag_does_not_arm_peek_until_the_drag_ends() throws {
+        let controller = try makePeekController()
+        let root = controller.rootViewControllerForTesting
+        let strip = root.appCanvasViewForTesting.paneStripView
+        let firstColumn = try XCTUnwrap(root.worklaneStore.activeWorklane?.paneStripState.columns.first?.id)
+        _ = try XCTUnwrap(strip.beginDividerDragForTesting(
+            .column(afterColumnID: firstColumn),
+            locationInDividerView: CGPoint(x: 4, y: 2)
+        ))
+        XCTAssertTrue(strip.isDividerDragActive)
+
+        root.routeNextWorklane()
+        XCTAssertFalse(root.isWorklanePeekActive)
+
+        strip.cancelDividerDragForTesting()
+        root.routeNextWorklane()
+        XCTAssertTrue(root.isWorklanePeekActive, "Ctrl-Tab works again once the gesture is over")
+        root.peekControllerForTesting.handleEscape()
+    }
+
+    // MARK: - Worklane peek abort
+
+    func test_window_resign_key_aborts_open_peek() throws {
+        let controller = try makePeekController()
+        let root = controller.rootViewControllerForTesting
+        let overlay = try XCTUnwrap(root.view.subviews.compactMap { $0 as? WorklanePeekView }.first)
+
+        // The first tap arms and the second commits its step to the second
+        // pane, then opens peek with its preview wrapped back to the first.
+        root.routeNextWorklane()
+        root.routeNextWorklane()
+        XCTAssertTrue(root.isWorklanePeekActive)
+        XCTAssertFalse(overlay.isHidden)
+
+        NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: controller.window)
+        waitForLayout("peek aborted")
+
+        XCTAssertFalse(root.isWorklanePeekActive)
+        XCTAssertTrue(overlay.isHidden)
+        XCTAssertEqual(
+            root.worklaneStore.activeWorklane?.focusedPaneID,
+            peekSecondPaneID,
+            "an abort restores the opening selection like Escape, it does not commit the preview"
+        )
+    }
+
+    func test_window_resign_key_cancels_armed_peek_without_its_deferred_step() throws {
+        let controller = try makePeekController()
+        let root = controller.rootViewControllerForTesting
+
+        root.routeNextWorklane()
+        XCTAssertTrue(root.isWorklanePeekActive)
+
+        NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: controller.window)
+        waitForLayout("peek aborted")
+
+        XCTAssertFalse(root.isWorklanePeekActive)
+        XCTAssertEqual(root.worklaneStore.activeWorklane?.focusedPaneID, peekFirstPaneID)
     }
 }
 

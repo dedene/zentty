@@ -370,6 +370,150 @@ final class RemoteImageUploaderTests: XCTestCase {
     }
 }
 
+final class ProcessRemoteImageUploadProcessTests: XCTestCase {
+    func test_terminate_before_run_cancels_the_launch() {
+        let process = shellProcess("exit 0")
+
+        process.terminate()
+
+        XCTAssertThrowsError(try process.run()) { error in
+            XCTAssertTrue(error is CancellationError)
+        }
+    }
+
+    func test_terminate_after_a_failed_launch_does_not_signal() {
+        let process = ProcessRemoteImageUploadProcessFactory().makeProcess(
+            executableURL: URL(fileURLWithPath: "/nonexistent/zentty-ssh"),
+            arguments: []
+        )
+
+        XCTAssertThrowsError(try process.run())
+        process.terminate()
+    }
+
+    func test_terminate_stops_a_running_process() throws {
+        let process = shellProcess("exec /bin/sleep 30")
+
+        try process.run()
+        process.terminate()
+        process.closeStandardInput()
+        let startedAt = Date()
+        let result = process.waitUntilExit(timeout: 10)
+
+        XCTAssertFalse(result.timedOut)
+        XCTAssertNotEqual(result.exitStatus, 0)
+        XCTAssertLessThan(Date().timeIntervalSince(startedAt), 5)
+    }
+
+    func test_terminate_racing_the_launch_never_signals_an_unlaunched_process() {
+        for _ in 0..<25 {
+            let process = shellProcess("exit 0")
+
+            DispatchQueue.concurrentPerform(iterations: 2) { index in
+                if index == 0 {
+                    process.terminate()
+                } else if (try? process.run()) != nil {
+                    process.closeStandardInput()
+                    _ = process.waitUntilExit(timeout: 10)
+                }
+            }
+        }
+    }
+
+    func test_terminate_after_exit_is_harmless() throws {
+        let process = shellProcess("exit 0")
+
+        try process.run()
+        process.closeStandardInput()
+        XCTAssertEqual(process.waitUntilExit(timeout: 10).exitStatus, 0)
+
+        process.terminate()
+    }
+
+    func test_upload_cancelled_before_it_starts_reports_cancellation() async {
+        let uploader = RemoteImageUploader(processFactory: QuickShellProcessFactory())
+        let cancelledFirst = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return try await uploader.upload(
+                imageData: Data([1]),
+                fileExtension: "png",
+                destination: SSHDestination(target: "peter@example.test"),
+                progress: { _ in }
+            )
+        }
+
+        do {
+            _ = try await cancelledFirst.value
+            XCTFail("a cancelled upload must not finish")
+        } catch {
+            XCTAssertTrue(error is CancellationError, "got \(error)")
+        }
+    }
+
+    func test_upload_that_times_out_before_launching_reports_the_timeout() async {
+        let uploader = RemoteImageUploader(
+            processFactory: TimeoutBeforeLaunchProcess(),
+            remotePathProvider: { _ in "/tmp/zentty-paste-1700000000-12345678.png" },
+            timeout: 0.01
+        )
+
+        do {
+            _ = try await uploader.upload(
+                imageData: Data([1]),
+                fileExtension: "png",
+                destination: SSHDestination(target: "peter@example.test"),
+                progress: { _ in }
+            )
+            XCTFail("the upload must not finish")
+        } catch {
+            XCTAssertEqual(error as? RemoteImageUploadError, .timeout, "got \(error)")
+        }
+    }
+
+    func test_process_exits_when_child_floods_stderr() throws {
+        let process = shellProcess("head -c 200000 /dev/zero >&2")
+
+        try process.run()
+        process.closeStandardInput()
+        let result = process.waitUntilExit(timeout: 10)
+
+        XCTAssertFalse(result.timedOut)
+        XCTAssertEqual(result.exitStatus, 0)
+        XCTAssertEqual(result.stderr.utf8.count, 200_000)
+    }
+
+    func test_process_keeps_stderr_text_for_error_classification() throws {
+        let process = shellProcess("echo 'Permission denied (publickey).' >&2; exit 255")
+
+        try process.run()
+        process.closeStandardInput()
+        let result = process.waitUntilExit(timeout: 10)
+
+        XCTAssertEqual(result.exitStatus, 255)
+        XCTAssertEqual(result.stderr, "Permission denied (publickey).\n")
+    }
+
+    func test_wait_returns_when_a_background_child_keeps_stderr_open() throws {
+        let process = shellProcess("echo boom >&2; /bin/sleep 8 & exit 3")
+
+        try process.run()
+        process.closeStandardInput()
+        let startedAt = Date()
+        let result = process.waitUntilExit(timeout: 10)
+
+        XCTAssertLessThan(Date().timeIntervalSince(startedAt), 5)
+        XCTAssertEqual(result.exitStatus, 3)
+        XCTAssertEqual(result.stderr, "boom\n")
+    }
+
+    private func shellProcess(_ script: String) -> any RemoteImageUploadProcess {
+        ProcessRemoteImageUploadProcessFactory().makeProcess(
+            executableURL: URL(fileURLWithPath: "/bin/sh"),
+            arguments: ["-c", script]
+        )
+    }
+}
+
 private func XCTAssertThrowsRemoteImageUploadError(
     _ expected: RemoteImageUploadError,
     operation: @escaping @Sendable () async throws -> Void,
@@ -384,6 +528,36 @@ private func XCTAssertThrowsRemoteImageUploadError(
     } catch {
         XCTFail("Unexpected error: \(error)", file: file, line: line)
     }
+}
+
+/// The real process wrapper around a command that needs no network.
+private struct QuickShellProcessFactory: RemoteImageUploadProcessFactory {
+    func makeProcess(executableURL: URL, arguments: [String]) -> any RemoteImageUploadProcess {
+        ProcessRemoteImageUploadProcessFactory().makeProcess(
+            executableURL: URL(fileURLWithPath: "/bin/sh"),
+            arguments: ["-c", "exit 0"]
+        )
+    }
+}
+
+/// Holds its launch back until the upload timeout terminates it, then refuses
+/// to launch the way the real wrapper does.
+private final class TimeoutBeforeLaunchProcess: RemoteImageUploadProcess, RemoteImageUploadProcessFactory, @unchecked Sendable {
+    private let terminated = DispatchSemaphore(value: 0)
+
+    func makeProcess(executableURL: URL, arguments: [String]) -> any RemoteImageUploadProcess { self }
+
+    func run() throws {
+        terminated.wait()
+        throw CancellationError()
+    }
+
+    func write(_ data: Data) throws {}
+    func closeStandardInput() {}
+    func waitUntilExit(timeout: TimeInterval) -> RemoteImageUploadProcessResult {
+        RemoteImageUploadProcessResult(exitStatus: 0, stderr: "", timedOut: false)
+    }
+    func terminate() { terminated.signal() }
 }
 
 private final class FakeRemoteImageUploadProcessFactory: RemoteImageUploadProcessFactory, @unchecked Sendable {

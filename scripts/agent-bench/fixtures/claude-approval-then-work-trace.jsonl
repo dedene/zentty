@@ -1,0 +1,22 @@
+{"t": 0.0, "title": "✳ Claude Code"}
+{"hook": {"cwd": "$REPO", "hook_event_name": "SessionStart", "model": "claude-haiku-5-5", "session_id": "session-1", "source": "startup", "transcript_path": "$SESSION.jsonl"}, "t": 0.06}
+{"t": 0.08, "title": "◐ Claude Code"}
+{"hook": {"cwd": "$REPO", "hook_event_name": "UserPromptSubmit", "permission_mode": "default", "prompt": "For an integration hook regression test: 1) create a file named ZENTTY_AGENT_BENCH_APPROVAL_OK in the current directory using the Write tool with the text ZENTTY_AGENT_BENCH_APPROVAL_OK. 2) Then, without asking me anything, read README.md with the Read tool. 3) Then search for the word bench in this directory with the Grep tool. 4) Then reply with exactly DONE.", "session_id": "session-1", "transcript_path": "$SESSION.jsonl"}, "t": 0.12}
+{"t": 1.04, "title": "◑ Claude Code"}
+{"hook": {"cwd": "$REPO", "hook_event_name": "PreToolUse", "permission_mode": "default", "session_id": "session-1", "tool_input": {"file_path": "$REPO/ZENTTY_AGENT_BENCH_APPROVAL_OK"}, "tool_name": "Write", "tool_use_id": "tool-1", "transcript_path": "$SESSION.jsonl"}, "t": 1.88}
+{"t": 1.89, "title": "✳ Claude Code"}
+{"hook": {"cwd": "$REPO", "hook_event_name": "PermissionRequest", "permission_mode": "default", "session_id": "session-1", "tool_input": {"file_path": "$REPO/ZENTTY_AGENT_BENCH_APPROVAL_OK"}, "tool_name": "Write", "transcript_path": "$SESSION.jsonl"}, "t": 1.9}
+{"t": 1.91, "title": "✳ Integration hook regression test"}
+{"hook": {"cwd": "$REPO", "hook_event_name": "Notification", "message": "Claude needs your permission", "notification_type": "permission_prompt", "session_id": "session-1", "transcript_path": "$SESSION.jsonl"}, "t": 7.92}
+{"input": "approve", "t": 9.94}
+{"t": 9.95, "title": "◑ Integration hook regression test"}
+{"hook": {"cwd": "$REPO", "hook_event_name": "PostToolUse", "permission_mode": "default", "session_id": "session-1", "tool_input": {"file_path": "$REPO/ZENTTY_AGENT_BENCH_APPROVAL_OK"}, "tool_name": "Write", "tool_response": {"type": "create"}, "tool_use_id": "tool-1", "transcript_path": "$SESSION.jsonl"}, "t": 9.99}
+{"hook": {"cwd": "$REPO", "hook_event_name": "PostToolUse", "permission_mode": "default", "session_id": "session-1", "tool_input": {"file_path": "$REPO/README.md"}, "tool_name": "Read", "tool_response": {"type": "text"}, "tool_use_id": "tool-2", "transcript_path": "$SESSION.jsonl"}, "t": 10.02}
+{"t": 10.91, "title": "◐ Integration hook regression test"}
+{"t": 11.88, "title": "◑ Integration hook regression test"}
+{"hook": {"cwd": "$REPO", "hook_event_name": "PreToolUse", "permission_mode": "default", "session_id": "session-1", "tool_input": {"command": "cd \"$REPO\" && grep -rni \"bench\" . --exclude-dir=.git", "description": "Search directory for the word bench"}, "tool_name": "Bash", "tool_use_id": "tool-3", "transcript_path": "$SESSION.jsonl"}, "t": 12.38}
+{"hook": {"cwd": "$REPO", "hook_event_name": "PostToolUse", "permission_mode": "default", "session_id": "session-1", "tool_input": {"command": "cd \"$REPO\" && grep -rni \"bench\" . --exclude-dir=.git", "description": "Search directory for the word bench"}, "tool_name": "Bash", "tool_response": {}, "tool_use_id": "tool-3", "transcript_path": "$SESSION.jsonl"}, "t": 12.58}
+{"t": 12.84, "title": "◐ Integration hook regression test"}
+{"t": 13.81, "title": "◑ Integration hook regression test"}
+{"hook": {"cwd": "$REPO", "hook_event_name": "Stop", "permission_mode": "default", "session_id": "session-1", "transcript_path": "$SESSION.jsonl"}, "t": 13.82}
+{"t": 13.83, "title": "✳ Integration hook regression test"}

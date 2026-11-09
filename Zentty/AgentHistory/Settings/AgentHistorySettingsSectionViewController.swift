@@ -25,6 +25,9 @@ final class AgentHistorySettingsSectionViewController: SettingsScrollableSection
     private var detected: [AgentHistoryDetectedSource] = []
     private var retentionRoots: [String] = []
     private var statusObserverID: UUID?
+    /// A History on/off change is on its way. `status` still shows the old value until it lands,
+    /// so the switch holds the click and takes no further ones (`sendEnabledChange`).
+    private var isEnabledChangePending = false
     private var relativeTimeTimer: Timer?
 
     let statusSwitch = NSSwitch()
@@ -243,22 +246,33 @@ final class AgentHistorySettingsSectionViewController: SettingsScrollableSection
             reloadRetention()
         }
         removedLabel.stringValue = AgentHistorySettingsRows.removedSessionsText(status.removedSessionCount, formatting: formatting)
-        // Restoring needs a running index; while History is off the count is shown, not acted on.
-        restoreAllButton.isEnabled = hasBackend && status.removedSessionCount > 0 && status.state != .off
-        let removalsUnreadable = status.state == .failed(.removalsUnreadable)
-        rebuildButton.isEnabled = hasBackend && status.isEnabled && !removalsUnreadable
-        rebuildBlockedLabel.stringValue = removalsUnreadable ? AgentHistorySettingsRows.rebuildBlockedText : ""
-        rebuildBlockedLabel.isHidden = !removalsUnreadable
+        // Restoring needs an index that takes writes; until then the count is shown, not acted on.
+        restoreAllButton.isEnabled = hasBackend && status.removedSessionCount > 0 && status.acceptsIndexWrites
+        let rebuildBlockReason = rebuildBlockReason
+        rebuildButton.isEnabled = hasBackend && status.isEnabled && status.canRebuild && rebuildBlockReason == nil
+        rebuildBlockedLabel.stringValue = rebuildBlockReason ?? ""
+        rebuildBlockedLabel.isHidden = rebuildBlockReason == nil
         // Deleting works without a running index; an off index or a kept consent is still there to delete.
         deleteButton.isEnabled = hasBackend && (status.indexExists || status.isEnabled || status.hasConsented)
         relayout()
     }
 
+    /// Why Rebuild is off, for the states the user can do something about.
+    private var rebuildBlockReason: String? {
+        switch status.state {
+        case .failed(.removalsUnreadable): AgentHistorySettingsRows.rebuildBlockedText
+        case .paused(.anotherInstance, _): AgentHistorySettingsRows.rebuildOwnedElsewhereText
+        default: nil
+        }
+    }
+
     private func renderStatus() {
         // Until state.json is read, consent is unknown: turning on could ask a consented user
         // again and overwrite their per-agent choices.
-        statusSwitch.isEnabled = hasBackend && status.isStateLoaded && canTurnOn
-        statusSwitch.state = status.isEnabled ? .on : .off
+        statusSwitch.isEnabled = hasBackend && status.isStateLoaded && canTurnOn && !isEnabledChangePending
+        if !isEnabledChangePending {
+            statusSwitch.state = status.isEnabled ? .on : .off
+        }
         guard hasBackend else {
             summaryLabel.stringValue = Self.unavailableText
             progressIndicator.isHidden = true
@@ -359,7 +373,7 @@ final class AgentHistorySettingsSectionViewController: SettingsScrollableSection
         guard wantsOn != status.isEnabled else { return }
         // Off, or on again after consent: no sheet.
         guard wantsOn, !status.hasConsented else {
-            backend.setEnabled(wantsOn) { [weak self] in self?.reportStateChange($0, .history(on: wantsOn)) }
+            sendEnabledChange(on: wantsOn) { backend.setEnabled(wantsOn, completion: $0) }
             return
         }
         let found = detected.filter(\.isFound)
@@ -374,9 +388,21 @@ final class AgentHistorySettingsSectionViewController: SettingsScrollableSection
                 return
             }
             // Like the consent card: every agent found on this Mac starts on, and only those.
-            backend.enable(agents: Set(found.map(\.agent))) { [weak self] in
-                self?.reportStateChange($0, .history(on: true))
-            }
+            self.sendEnabledChange(on: true) { backend.enable(agents: Set(found.map(\.agent)), completion: $0) }
+        }
+    }
+
+    /// Set before `send`, because a refusal answers synchronously.
+    private func sendEnabledChange(
+        on wantsOn: Bool,
+        _ send: (@escaping @MainActor (AgentHistoryStateChangeOutcome) -> Void) -> Void
+    ) {
+        isEnabledChangePending = true
+        renderStatus()
+        send { [weak self] outcome in
+            guard let self else { return }
+            self.isEnabledChangePending = false
+            self.reportStateChange(outcome, .history(on: wantsOn))
         }
     }
 

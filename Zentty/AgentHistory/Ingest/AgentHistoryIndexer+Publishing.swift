@@ -91,7 +91,7 @@ extension AgentHistoryIndexer {
         refreshCounters()
         var status = makeStatus()
         let snapshot = snapshotDirty
-            ? snapshotBuilder.build(isComplete: isBackfillComplete, removedKeys: admission.tombstones)
+            ? snapshotBuilder.build(isComplete: isBackfillComplete, removals: admission.removals)
             : nil
         snapshotDirty = false
 
@@ -144,6 +144,7 @@ extension AgentHistoryIndexer {
         status.sources = sourceOrder.compactMap { sourceStates[$0].map(health(of:)) }
         status.indexedSessions = snapshotBuilder.count
         status.removedSessionCount = admission.tombstones.count
+        status.removedKeys = admission.tombstones
         status.indexExists = FileManager.default.fileExists(atPath: storage.paths.databaseURL.path)
         status.indexSizeBytes = status.indexExists ? storage.diskUsageBytes() : 0
         status.lastUpdatedAt = lastUpdatedAt
@@ -195,12 +196,13 @@ extension AgentHistoryIndexer {
             return
         }
         refreshCounters()
-        for id in sourceOrder {
+        for id in sourceOrder where !isWritingSuspended {
             guard let sourceState = sourceStates[id], sourceState.countersDirty else {
                 continue
             }
             let scannedAt = sourceState.lastScanAt ?? now()
             do {
+                try beforeHousekeepingWriteForTesting?(.counters)
                 try store.updateSourceHealth(
                     id: id,
                     discovered: sourceState.discovered,
@@ -210,9 +212,10 @@ extension AgentHistoryIndexer {
                     lastError: sourceState.problem.map(Self.describe)
                 )
                 sourceState.countersDirty = false
-            } catch let error as AgentHistoryDatabaseError {
-                AgentHistoryLog.indexer.error("Agent History counters not saved \(error.description, privacy: .public)")
-            } catch {}
+            } catch {
+                logWriteFailure(error, action: "save the source counters")
+                continue
+            }
             AgentHistoryLog.indexer.info(
                 "Agent History source agent=\(sourceState.source.agent.rawValue, privacy: .public) discovered=\(sourceState.discovered, privacy: .public) indexed=\(sourceState.indexed, privacy: .public) skipped=\(sourceState.skippedSessionIDs.count, privacy: .public) skippedRecords=\(sourceState.skippedRecords, privacy: .public)"
             )

@@ -252,7 +252,7 @@ struct SessionScrollbackArchive: Sendable {
         }
     }
 
-    private func ensureDirectory(fileManager: FileManager) throws {
+    func ensureDirectory(fileManager: FileManager = .default) throws {
         try fileManager.createDirectory(
             at: directoryURL,
             withIntermediateDirectories: true,

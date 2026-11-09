@@ -80,6 +80,7 @@ final class RootViewCompositionTests: AppKitTestCase {
     }
 
     private func makeController(
+        windowID: WindowID = WindowID("wd_\(UUID().uuidString.lowercased())"),
         configStore: AppConfigStore? = nil,
         openWithService: OpenWithServing = RootViewCompositionOpenWithService(),
         serverOpenService: ServerOpening = RootViewCompositionServerOpenService(),
@@ -91,6 +92,7 @@ final class RootViewCompositionTests: AppKitTestCase {
         initialWorkspaceState: WindowWorkspaceState? = nil
     ) -> RootViewController {
         let controller = RootViewController(
+            windowID: windowID,
             configStore: configStore,
             appUpdateStateStore: appUpdateStateStore,
             openWithService: openWithService,
@@ -1107,6 +1109,48 @@ final class RootViewCompositionTests: AppKitTestCase {
             WorklaneID("worklane-A"),
             "Releasing Ctrl commits the peek selection"
         )
+    }
+
+    func test_same_window_notification_navigation_reveals_awaiting_overlay() throws {
+        let windowID = WindowID("wd-overlay-reveal")
+        let ownerWorklaneID = WorklaneID("worklane-A")
+        let ownerPaneID = PaneID("pane-A")
+        let controller = makeController(windowID: windowID)
+        hostInVisibleWindow(controller)
+        controller.replaceWorklanes(makeNumberedWorklanes(), activeWorklaneID: WorklaneID("worklane-B"))
+        let overlayID = try controller.worklaneStore.openOverlayFloat(
+            on: ownerPaneID,
+            request: OverlayFloatRequest(
+                command: "/bin/echo hi",
+                workingDirectory: "/tmp",
+                waitAfterCommand: false,
+                placement: .worklane,
+                sizePercent: 100,
+                follow: false,
+                notify: true
+            ),
+            canvas: CGRect(x: 0, y: 0, width: 1200, height: 800),
+            ownerFrame: nil
+        ).id
+        let notifications = controller.notificationStoreForTesting
+        notifications.add(
+            windowID: windowID,
+            worklaneID: ownerWorklaneID,
+            paneID: ownerPaneID,
+            state: .needsInput,
+            tool: .claudeCode,
+            interactionKind: nil,
+            interactionSymbolName: nil,
+            statusText: "Needs input",
+            primaryText: "Overlay",
+            isDebounced: false
+        )
+
+        controller.routeJumpToLatestNotification()
+
+        XCTAssertEqual(controller.activeWorklaneIDForTesting, ownerWorklaneID)
+        XCTAssertEqual(controller.worklaneStore.activeWorklane?.floatingPane(id: overlayID)?.mode, .floating)
+        XCTAssertNil(notifications.mostUrgentUnresolved())
     }
 
     /// Sends a Ctrl-up `flagsChanged` event through `NSApp.sendEvent`, which is

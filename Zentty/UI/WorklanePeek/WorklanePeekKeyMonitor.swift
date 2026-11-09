@@ -6,7 +6,8 @@ import AppKit
 ///
 /// Lifecycle contract: callers MUST balance every `install()` with an
 /// `uninstall()` once the gesture ends. While installed, the monitor swallows
-/// Tab and Escape app-wide.
+/// Tab and Escape in `targetWindow`. Modifier changes stay app-wide, so a Ctrl
+/// release seen in another window of the app still ends the gesture.
 @MainActor
 final class WorklanePeekKeyMonitor {
     enum Event: Equatable {
@@ -160,9 +161,10 @@ final class WorklanePeekKeyMonitor {
         return .spatialSwipe(direction)
     }
 
-    private func process(_ event: NSEvent) -> NSEvent? {
+    func process(_ event: NSEvent) -> NSEvent? {
         switch event.type {
         case .keyDown:
+            guard shouldProcessWindowScopedEvent(event) else { return event }
             let emitted = processKeyDown(.init(
                 keyCode: event.keyCode,
                 containsControl: event.modifierFlags.contains(.control),
@@ -209,8 +211,14 @@ final class WorklanePeekKeyMonitor {
     }
 
     private func shouldProcessWindowScopedEvent(_ event: NSEvent) -> Bool {
+        Self.isWindowScoped(eventWindow: event.window, keyWindow: NSApp.keyWindow, targetWindow: targetWindow)
+    }
+
+    /// Whether an event belongs to the peek's window. An event with no window
+    /// counts as the key window's.
+    static func isWindowScoped(eventWindow: NSWindow?, keyWindow: NSWindow?, targetWindow: NSWindow?) -> Bool {
         guard let targetWindow else { return true }
-        return event.window === targetWindow || event.window == nil && NSApp.keyWindow === targetWindow
+        return eventWindow === targetWindow || eventWindow == nil && keyWindow === targetWindow
     }
 }
 

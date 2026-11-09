@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 import Combine
 import XCTest
 @testable import Zentty
@@ -281,6 +282,68 @@ final class AgentHistoryViewModelActionsTests: XCTestCase {
         XCTAssertEqual(model.transientMessage, "Removed from Agent History. Restore in Settings.")
     }
 
+    func test_refused_remove_brings_the_row_back_and_says_so() {
+        control.removeSessionResult = false
+        let model = startedModel()
+        let removed = summary(1).key
+
+        model.removeFromHistory(removed)
+
+        XCTAssertEqual(control.removedKeys, [removed])
+        XCTAssertEqual(model.rows.map(\.key), [summary(1).key, summary(2).key, summary(3).key])
+        XCTAssertEqual(model.transientMessage, AgentHistoryViewModel.removeFailedMessage)
+    }
+
+    func test_remove_keeps_the_row_out_while_the_index_answers() {
+        control.holdsRemovals = true
+        let model = startedModel()
+        let removed = summary(1).key
+
+        model.removeFromHistory(removed)
+
+        XCTAssertFalse(model.rows.contains { $0.key == removed }, "the drop stays optimistic")
+        XCTAssertNil(model.transientMessage, "nothing is promised before the index answers")
+
+        control.releaseRemovals()
+        XCTAssertEqual(model.transientMessage, AgentHistoryViewModel.removedMessage)
+    }
+
+    func test_late_remove_answer_after_the_palette_closed_is_ignored() {
+        control.holdsRemovals = true
+        control.removeSessionResult = false
+        let model = startedModel()
+        model.removeFromHistory(summary(1).key)
+        let scopeReads = search.recentScopes.count
+
+        model.stop()
+        control.releaseRemovals()
+
+        XCTAssertNil(model.transientMessage)
+        XCTAssertEqual(search.recentScopes.count, scopeReads, "a closed palette runs no search")
+    }
+
+    func test_removing_the_last_row_closes_the_detail() {
+        let wide = startedModel(recent: [summary(1)])
+        wide.handle(.toggleTranscript)
+        XCTAssertEqual(wide.detail, .transcript)
+
+        wide.removeFromHistory(summary(1).key)
+
+        XCTAssertTrue(wide.rows.isEmpty)
+        XCTAssertEqual(wide.detail, .none)
+        XCTAssertEqual(wide.transcript, .idle)
+        XCTAssertEqual(wide.preview, .idle)
+
+        let compact = startedModel(recent: [summary(2)])
+        compact.layout = .resolve(windowFrame: NSRect(x: 0, y: 0, width: 700, height: 900), mode: .results)
+        compact.handle(.toggleTranscript)
+        XCTAssertEqual(compact.detail, .preview)
+
+        compact.removeFromHistory(summary(2).key)
+
+        XCTAssertEqual(compact.detail, .none, "the compact layout shows the list again, not an empty preview")
+    }
+
     func test_reveal_transcript_only_offered_when_path_exists() {
         let present = "/tmp/agent-history-tests/root/present.jsonl"
         existingPaths = [present]
@@ -370,5 +433,77 @@ final class AgentHistoryViewModelActionsTests: XCTestCase {
         model.openProblemLink()
 
         XCTAssertEqual(settingsRequests, 1)
+    }
+
+    // MARK: - History off
+
+    private func startedOffModel() -> AgentHistoryViewModel {
+        var status = control.status
+        status.isStateLoaded = true
+        status.isEnabled = false
+        status.state = .off
+        control.status = status
+        return startedModel()
+    }
+
+    func test_open_settings_on_the_off_body_fires_the_settings_route() {
+        let model = startedOffModel()
+        XCTAssertEqual(model.body, .historyOff)
+
+        let context = AgentHistoryPanelController.keyContext(editor: nil, model: model)
+        let command = AgentHistoryKeyRouter.command(
+            keyCode: UInt16(kVK_Return), modifiers: [], charactersIgnoringModifiers: "\r", context: context
+        )
+        XCTAssertEqual(command, .openSettings, "↩ is the screen's button")
+        model.handle(.openSettings)
+
+        XCTAssertEqual(settingsRequests, 1)
+        XCTAssertTrue(closeRequests.isEmpty, "the settings route closes the palette itself")
+    }
+
+    func test_escape_on_the_off_body_closes_the_palette() {
+        let model = startedOffModel()
+
+        model.handle(.escape)
+
+        XCTAssertEqual(closeRequests, [true])
+    }
+
+    func test_no_row_command_acts_on_hidden_rows_while_history_is_off() {
+        let indexed = summary(1)
+        let live = summary(2)
+        launch.snapshot = LiveAgentSessionSnapshot(locationsByKey: [live.key: [liveLocation(live.key)]])
+        search.summariesByKey = [live.key: live]
+        let model = startedOffModel()
+        XCTAssertTrue(model.rows.isEmpty)
+
+        let commands: [AgentHistoryKeyCommand] = [
+            .moveSelection(1), .moveSelection(-1), .primary, .secondary, .toggleTranscript,
+            .closeTranscript, .toggleScope, .copyResumeCommand, .consentConfirm,
+        ]
+        for command in commands {
+            model.handle(command)
+        }
+        for key in [indexed.key, live.key] {
+            for item in AgentHistoryRowMenuItem.allCases {
+                model.perform(item, on: key)
+            }
+            model.perform(.primary, on: key)
+            model.select(key)
+            XCTAssertEqual(model.rowMenuItems(for: key), [])
+        }
+        model.updateQuery("session")
+
+        XCTAssertTrue(launch.launches.isEmpty)
+        XCTAssertTrue(control.removedKeys.isEmpty)
+        XCTAssertTrue(revealedURLs.isEmpty)
+        XCTAssertNil(pasteboard.string(forType: .string))
+        XCTAssertTrue(model.rows.isEmpty)
+        XCTAssertNil(model.selectedKey)
+        XCTAssertEqual(model.detail, .none)
+        XCTAssertTrue(search.metadataQueries.isEmpty, "the index isn't searched")
+        XCTAssertTrue(search.pendingPreviews.isEmpty)
+        XCTAssertEqual(model.body, .historyOff)
+        XCTAssertTrue(closeRequests.isEmpty)
     }
 }

@@ -95,6 +95,14 @@ struct TerminalDesktopNotification: Equatable, Sendable {
     var body: String?
 }
 
+/// A user paste that was accepted but hasn't reached the terminal, such as one waiting on paste
+/// protection or on a remote upload. It ends however the paste turns out; one that arrives reports
+/// `.userEditedInput` first.
+enum TerminalUserPasteHold: Equatable, Sendable {
+    case began
+    case ended
+}
+
 enum TerminalEvent: Equatable, Sendable {
     case shellReady
     case progressReport(TerminalProgressReport)
@@ -103,6 +111,7 @@ enum TerminalEvent: Equatable, Sendable {
     case userInterrupted
     case userEditedInput
     case userSubmittedInput
+    case userPasteHold(TerminalUserPasteHold)
     case surfaceClosed
 }
 

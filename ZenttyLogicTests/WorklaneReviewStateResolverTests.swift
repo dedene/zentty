@@ -960,6 +960,142 @@ final class WorklaneReviewStateResolverTests: XCTestCase {
         XCTAssertEqual(viewCalls.count, 2)
     }
 
+    // MARK: - Discovery TTL
+
+    private static let openPullRequest = #"{"number":1,"url":"https://example.com/pr/1","isDraft":false,"state":"OPEN"}"#
+
+    func test_remote_change_is_picked_up_after_discovery_ttl() async {
+        let clock = TestClock(start: Date(timeIntervalSince1970: 1_000_000))
+        let runner = StubGHRunner(
+            gitBranchResults: [.stdout("main\n")],
+            gitRemoteResults: [
+                .stdout("git@github.com:acme/old.git\n"),
+                .stdout("git@github.com:acme/new.git\n"),
+            ],
+            prViewResults: [.json(Self.openPullRequest)]
+        )
+        let resolver = WorklaneReviewStateResolver(runner: runner, now: { clock.now })
+
+        let first = await resolver.resolve(path: "/tmp/project", branch: "main")
+        XCTAssertEqual(first.reviewState?.branchURL?.absoluteString, "https://github.com/acme/old/tree/main")
+
+        clock.advance(by: 90)
+        let second = await resolver.resolve(path: "/tmp/project", branch: "main")
+
+        XCTAssertEqual(second.reviewState?.branchURL?.absoluteString, "https://github.com/acme/new/tree/main")
+        let repositories = await pullRequestViewRepositories(of: runner)
+        XCTAssertEqual(repositories, ["acme/old", "acme/new"])
+    }
+
+    func test_added_remote_replaces_cached_no_github_result() async {
+        let clock = TestClock(start: Date(timeIntervalSince1970: 1_000_000))
+        let runner = StubGHRunner(
+            gitBranchResults: [.stdout("main\n")],
+            gitRemoteResults: [
+                .stdout("git@gitlab.com:acme/project.git\n"),
+                .stdout("git@github.com:acme/project.git\n"),
+            ],
+            prViewResults: [.json(Self.openPullRequest)]
+        )
+        let resolver = WorklaneReviewStateResolver(runner: runner, now: { clock.now })
+
+        let first = await resolver.resolve(path: "/tmp/project", branch: "main")
+        XCTAssertNil(first.reviewState?.pullRequest)
+
+        clock.advance(by: 90)
+        let second = await resolver.resolve(path: "/tmp/project", branch: "main")
+
+        XCTAssertEqual(second.reviewState?.pullRequest?.number, 1)
+        let repositories = await pullRequestViewRepositories(of: runner)
+        XCTAssertEqual(repositories, ["acme/project"])
+    }
+
+    func test_forced_refresh_within_ttl_reuses_discovery() async {
+        let clock = TestClock(start: Date(timeIntervalSince1970: 1_000_000))
+        let runner = StubGHRunner(
+            gitBranchResults: [.stdout("main\n")],
+            gitRemoteResults: [
+                .stdout("git@github.com:acme/old.git\n"),
+                .stdout("git@github.com:acme/new.git\n"),
+            ],
+            prViewResults: [.json(Self.openPullRequest)]
+        )
+        let resolver = WorklaneReviewStateResolver(runner: runner, now: { clock.now })
+
+        for elapsed in [0, 89] as [TimeInterval] {
+            clock.advance(by: elapsed)
+            _ = await resolver.refreshPaneForTesting(
+                repoRoot: "/tmp/project",
+                branch: "main",
+                paneID: PaneID("pane-main"),
+                forceReload: true
+            )
+        }
+
+        let repositories = await pullRequestViewRepositories(of: runner)
+        XCTAssertEqual(repositories, ["acme/old", "acme/old"])
+    }
+
+    func test_branch_url_keeps_the_first_consulted_remote_after_rediscovery() async {
+        let clock = TestClock(start: Date(timeIntervalSince1970: 1_000_000))
+        let runner = StubGHRunner(
+            gitBranchResults: [.stdout("main\n")],
+            gitRemoteListResults: [.stdout("origin\nmirror\n")],
+            gitRemoteResults: [.stdout("git@gitlab.com:acme/project.git\n")],
+            additionalGitRemoteResults: [
+                "mirror": [.stdout("git@bitbucket.org:acme/project.git\n")],
+            ],
+            prViewResults: [.failure(stderr: "unused")]
+        )
+        let resolver = WorklaneReviewStateResolver(runner: runner, now: { clock.now })
+
+        _ = await resolver.resolve(path: "/tmp/project", branch: "main")
+        clock.advance(by: 90)
+        let second = await resolver.resolve(path: "/tmp/project", branch: "main")
+
+        XCTAssertEqual(second.reviewState?.branchURL?.host, "gitlab.com")
+    }
+
+    func test_branch_url_follows_each_branch_remote_while_discovery_is_cached() async {
+        let clock = TestClock(start: Date(timeIntervalSince1970: 1_000_000))
+        let runner = StubGHRunner(
+            gitBranchResults: [.stdout("feature\n")],
+            gitUpstreamRemoteResults: [.stdout("fork\n"), .stdout("upstream\n")],
+            additionalGitRemoteResults: [
+                "fork": [.stdout("git@github.com:me/project.git\n")],
+                "upstream": [.stdout("git@github.com:org/project.git\n")],
+            ],
+            prViewResults: [.json(Self.openPullRequest)]
+        )
+        let resolver = WorklaneReviewStateResolver(runner: runner, now: { clock.now })
+
+        let feature = await resolver.resolve(path: "/tmp/project", branch: "feature")
+        XCTAssertEqual(feature.reviewState?.branchURL?.absoluteString, "https://github.com/me/project/tree/feature")
+        let main = await resolver.resolve(path: "/tmp/project", branch: "main")
+        XCTAssertEqual(main.reviewState?.branchURL?.absoluteString, "https://github.com/org/project/tree/main")
+
+        // The poll bypasses the resolution cache but reuses discovery.
+        clock.advance(by: 10)
+        let refreshed = await resolver.refreshPaneForTesting(
+            repoRoot: "/tmp/project",
+            branch: "feature",
+            paneID: PaneID("pane-main"),
+            forceReload: true
+        )
+
+        XCTAssertEqual(refreshed?.reviewState?.branchURL?.absoluteString, "https://github.com/me/project/tree/feature")
+        let repositories = await pullRequestViewRepositories(of: runner)
+        XCTAssertEqual(repositories, ["me/project", "org/project", "me/project"])
+    }
+
+    private func pullRequestViewRepositories(of runner: StubGHRunner) async -> [String] {
+        await runner.calls
+            .filter { Array($0.arguments.prefix(3)) == ["gh", "pr", "view"] }
+            .compactMap { call in
+                call.arguments.firstIndex(of: "--repo").map { call.arguments[$0 + 1] }
+            }
+    }
+
     // MARK: - Failure visibility
 
     func test_resolver_flags_refresh_failed_and_preserves_data_on_transient_failure() async {

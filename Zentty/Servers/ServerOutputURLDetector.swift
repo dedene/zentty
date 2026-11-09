@@ -1,6 +1,10 @@
 import Foundation
 
 enum ServerOutputURLDetector {
+    /// The ASCII bytes that end a match of the URL pattern. They can't fall
+    /// inside a URL or a multi-byte character, so splitting there is always safe.
+    static let urlDelimiters = Set("\t\n\u{0C}\r <>\"'".utf8)
+
     static func detect(in text: String) -> [ServerURLCandidate] {
         let matches = urlMatches(in: text)
             .compactMap { rawURL -> ServerURLCandidate? in

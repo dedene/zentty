@@ -197,6 +197,30 @@ final class AgentHistoryViewModelTests: XCTestCase {
         XCTAssertTrue(search.pendingPreviews.isEmpty)
     }
 
+    func test_preview_loads_when_the_selected_live_row_gets_indexed() {
+        let indexed = summary(1)
+        launch.snapshot = snapshot([liveLocation(indexed.key)])
+        let model = makeModel()
+        model.start()
+        XCTAssertEqual(model.preview, .failed(.notIndexed))
+
+        search.summariesByKey[indexed.key] = indexed
+        var status = control.status
+        status.revision = 2
+        control.publish(status)
+        scheduler.advance(by: AgentHistoryViewModel.statusRefreshInterval)
+
+        XCTAssertEqual(model.selectedKey, indexed.key)
+        XCTAssertEqual(model.preview, .loading)
+        scheduler.advance(by: AgentHistoryViewModel.detailCoalesce)
+        XCTAssertEqual(search.pendingPreviews.map(\.sessionID), [1])
+
+        status.revision = 3
+        control.publish(status)
+        scheduler.advance(by: AgentHistoryViewModel.statusRefreshInterval * 2)
+        XCTAssertEqual(search.pendingPreviews.count, 1, "an ordinary status tick doesn't reload the preview")
+    }
+
     // MARK: - Typing
 
     func test_typing_runs_metadata_synchronously_and_defers_content_120ms() {
@@ -465,6 +489,20 @@ final class AgentHistoryViewModelTests: XCTestCase {
         XCTAssertEqual(search.pendingTranscripts.count, 2, "a hidden transcript does not follow selection")
     }
 
+    func test_delayed_detail_load_cancels_the_transcript_read_already_running() {
+        search.recent = [summary(1)]
+        let model = makeModel()
+        model.start()
+
+        model.toggleTranscript()
+        XCTAssertEqual(search.pendingTranscripts.count, 1)
+        scheduler.advance(by: AgentHistoryViewModel.detailCoalesce)
+
+        XCTAssertEqual(search.pendingTranscripts.count, 2)
+        XCTAssertTrue(search.pendingTranscripts[0].token.isCancelled, "only one read may own the transcript token")
+        XCTAssertFalse(search.pendingTranscripts[1].token.isCancelled)
+    }
+
     // MARK: - Updates
 
     func test_status_revision_refreshes_empty_query_but_not_typed_results() {
@@ -576,5 +614,170 @@ final class AgentHistoryViewModelTests: XCTestCase {
         second.start()
         XCTAssertEqual(second.body, .consent)
         XCTAssertEqual(second.consent?.enabledAgents, [.codex])
+    }
+
+    // MARK: - History off
+
+    /// A status from a read `state.json`. Consented, unless the test says otherwise.
+    private func loadedStatus(
+        isEnabled: Bool,
+        hasConsented: Bool = true,
+        state: AgentHistoryIndexerState,
+        revision: UInt64 = 2
+    ) -> AgentHistoryStatus {
+        var status = control.status
+        status.isStateLoaded = true
+        status.isEnabled = isEnabled
+        status.hasConsented = hasConsented
+        status.state = state
+        status.revision = revision
+        return status
+    }
+
+    func test_history_off_with_consent_shows_the_off_body() {
+        search.recent = [summary(1)]
+        launch.snapshot = snapshot([liveLocation(summary(2).key)])
+        control.status = loadedStatus(isEnabled: false, state: .off)
+
+        let model = makeModel()
+        model.start()
+
+        XCTAssertEqual(model.body, .historyOff)
+        XCTAssertTrue(model.rows.isEmpty, "neither indexed nor live sessions are listed behind it")
+        XCTAssertNil(model.selectedKey)
+        XCTAssertTrue(search.recentScopes.isEmpty, "the index isn't read")
+    }
+
+    /// The engine is missing for a moment on every launch. The body follows the saved state, so
+    /// the off screen can't flash then.
+    func test_launch_window_without_an_engine_does_not_show_the_off_body() {
+        control.status = .off
+        let model = makeModel()
+        model.start()
+        XCTAssertEqual(model.body, .loading, "placeholder values say nothing about History being off")
+
+        control.publish(loadedStatus(isEnabled: true, state: .starting))
+        XCTAssertEqual(model.body, .results)
+
+        control.status = loadedStatus(isEnabled: true, state: .starting)
+        let second = makeModel()
+        second.start()
+        XCTAssertEqual(second.body, .results)
+    }
+
+    func test_palette_opened_before_the_saved_state_loads_shows_the_off_body_once_it_says_off() {
+        control.status = .off
+        let model = makeModel()
+        model.start()
+        XCTAssertEqual(model.body, .loading)
+
+        control.publish(loadedStatus(isEnabled: false, state: .off))
+
+        XCTAssertEqual(model.body, .historyOff)
+    }
+
+    func test_no_consent_keeps_the_consent_card() {
+        control.status = loadedStatus(isEnabled: false, hasConsented: false, state: .off)
+        control.detectedSources = [
+            AgentHistoryDetectedSource(agent: .codex, rootPath: "/tmp/agent-history-tests/.codex", isFound: true,
+                                       sessionCount: 3, checkedPaths: [], problem: nil),
+        ]
+
+        let model = makeModel()
+        model.start()
+
+        XCTAssertEqual(model.body, .consent)
+    }
+
+    func test_standby_disk_full_and_indexing_keep_their_bodies() {
+        let progress = AgentHistoryBackfillProgress(indexedSessions: 1, totalSessions: 2)
+        let results: [AgentHistoryIndexerState] = [
+            .starting,
+            .watching,
+            .backfilling(progress),
+            .paused(.anotherInstance, nil),
+            .paused(.diskFull, progress),
+        ]
+        for state in results {
+            control.status = loadedStatus(isEnabled: true, state: state)
+            let model = makeModel()
+            model.start()
+            XCTAssertEqual(model.body, .results, "\(state)")
+        }
+
+        control.status = loadedStatus(isEnabled: true, state: .failed(.corrupt))
+        let failed = makeModel()
+        failed.start()
+        XCTAssertEqual(failed.body, .indexUnavailable(.corrupt))
+    }
+
+    func test_turning_history_on_leaves_the_off_body() {
+        search.recent = [summary(1), summary(2)]
+        search.sessionCount = 2
+        control.status = loadedStatus(isEnabled: false, state: .off)
+        let model = makeModel()
+        model.start()
+        XCTAssertEqual(model.body, .historyOff)
+
+        control.publish(loadedStatus(isEnabled: true, state: .starting, revision: 3))
+
+        XCTAssertEqual(model.body, .results)
+        XCTAssertEqual(model.rows.compactMap(\.sessionID), [1, 2])
+        XCTAssertEqual(model.selectedKey, summary(1).key)
+    }
+
+    func test_the_off_body_stays_through_status_and_live_session_updates() {
+        search.recent = [summary(1)]
+        control.status = loadedStatus(isEnabled: false, state: .off)
+        let model = makeModel()
+        model.start()
+
+        var recount = loadedStatus(isEnabled: false, state: .off, revision: 3)
+        recount.indexSizeBytes = 4096
+        control.publish(recount)
+        launch.publishLive(snapshot([liveLocation(summary(2).key)]))
+        scheduler.advance(by: 5)
+
+        XCTAssertEqual(model.body, .historyOff)
+        XCTAssertTrue(model.rows.isEmpty)
+    }
+
+    /// The worklane menu holds the first results for its project; going off must not strand that
+    /// wait, or turning History back on would stay on the loading body.
+    func test_turning_history_off_during_the_project_wait_keeps_the_way_back() {
+        search.recent = [summary(1)]
+        let model = makeModel()
+        model.awaitProjects()
+        model.start()
+        XCTAssertEqual(model.body, .loading)
+
+        control.publish(loadedStatus(isEnabled: false, state: .off))
+        XCTAssertEqual(model.body, .historyOff)
+
+        scheduler.advance(by: AgentHistoryViewModel.projectsWait)
+        XCTAssertEqual(model.body, .historyOff, "the elapsed wait doesn't bring the results back")
+
+        control.publish(loadedStatus(isEnabled: true, state: .watching, revision: 3))
+        XCTAssertEqual(model.body, .results)
+    }
+
+    func test_turning_history_off_while_the_consent_card_indexes_shows_the_off_body() {
+        control.status = loadedStatus(isEnabled: false, hasConsented: false, state: .off)
+        control.status.indexedSessions = 0
+        control.detectedSources = [
+            AgentHistoryDetectedSource(agent: .codex, rootPath: "/tmp/agent-history-tests/.codex", isFound: true,
+                                       sessionCount: 3, checkedPaths: [], problem: nil),
+        ]
+        let model = makeModel()
+        model.start()
+        model.confirmConsent()
+        let progress = AgentHistoryBackfillProgress(indexedSessions: 1, totalSessions: 100)
+        control.publish(loadedStatus(isEnabled: true, state: .backfilling(progress), revision: 2))
+        XCTAssertEqual(model.body, .consent)
+
+        control.publish(loadedStatus(isEnabled: false, state: .off, revision: 3))
+
+        XCTAssertEqual(model.body, .historyOff)
+        XCTAssertNil(model.consent)
     }
 }

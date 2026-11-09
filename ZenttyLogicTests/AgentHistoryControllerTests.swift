@@ -10,6 +10,14 @@ final class AgentHistoryControllerTests: XCTestCase {
         private let lock = NSLock()
         private var made: [AgentHistoryIndexer] = []
         private var configurations: [AgentHistoryIndexerConfiguration] = []
+        private var onMake: (@Sendable (AgentHistoryIndexer) -> Void)?
+
+        /// Runs for every later indexer, before it is started.
+        func setOnMake(_ handler: @escaping @Sendable (AgentHistoryIndexer) -> Void) {
+            lock.lock()
+            onMake = handler
+            lock.unlock()
+        }
 
         var count: Int { lock.lock(); defer { lock.unlock() }; return made.count }
         var last: AgentHistoryIndexer? { lock.lock(); defer { lock.unlock() }; return made.last }
@@ -21,7 +29,9 @@ final class AgentHistoryControllerTests: XCTestCase {
             lock.lock()
             made.append(indexer)
             configurations.append(configuration)
+            let onMake = onMake
             lock.unlock()
+            onMake?(indexer)
         }
     }
 
@@ -355,6 +365,60 @@ final class AgentHistoryControllerTests: XCTestCase {
                        "reading the reset state never recreates the directory")
     }
 
+    func test_delete_right_after_a_state_change_leaves_no_index() throws {
+        let fixture = makeFixture()
+        try writeState(fixture.paths) { $0.enabled = false; $0.consentedAt = Date() }
+        XCTAssertFalse(launch(fixture.controller))
+
+        var outcome: AgentHistoryDisableOutcome?
+        let deleted = expectation(description: "delete finished")
+        fixture.controller.setEnabled(true)
+        fixture.controller.disable(deleteIndex: true) { result in
+            outcome = result
+            deleted.fulfill()
+        }
+        wait(for: [deleted], timeout: 10)
+        fixture.controller.drainControlQueueForTesting()
+
+        XCTAssertEqual(outcome, .deleted)
+        XCTAssertEqual(fixture.factory.count, 0, "the older delivery must not start an indexer behind the delete")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fixture.paths.databaseURL.path))
+        XCTAssertNil(persistedState(fixture.paths).consentedAt)
+    }
+
+    func test_turning_off_right_after_an_agent_went_off_still_purges_it() throws {
+        let fixture = makeFixture()
+        try writeState(fixture.paths) { $0.enabled = true; $0.consentedAt = Date() }
+        XCTAssertTrue(launch(fixture.controller))
+        waitForSnapshot(fixture.controller, "all indexed") { $0 == Self.allSessions }
+
+        var answers = 0
+        let settled = expectation(description: "both changes delivered")
+        settled.expectedFulfillmentCount = 2
+        fixture.controller.setAgentEnabled(.codex, false) { _ in
+            answers += 1
+            settled.fulfill()
+        }
+        fixture.controller.disable(deleteIndex: false) { _ in
+            answers += 1
+            settled.fulfill()
+        }
+        wait(for: [settled], timeout: 10)
+        fixture.controller.drainControlQueueForTesting()
+
+        XCTAssertEqual(answers, 2, "a skipped update still answers its caller")
+        XCTAssertEqual(try storedNativeIDs(fixture.paths), ["claude-outside", "claude-inside"])
+    }
+
+    func test_remove_session_without_an_indexer_completes_false() {
+        let fixture = makeFixture()
+        var answer: Bool?
+
+        fixture.controller.removeSession(AgentHistorySessionKey(agent: .codex, nativeID: "codex-one")) { answer = $0 }
+
+        XCTAssertEqual(answer, false)
+    }
+
     // MARK: - Off status
 
     /// Builds an index with one removed session, then turns History off (index kept).
@@ -618,6 +682,57 @@ final class AgentHistoryControllerTests: XCTestCase {
         }, "the new indexer never found the old one still owning the index")
         XCTAssertFalse(first.isWriterOpenForTesting)
         XCTAssertTrue(try XCTUnwrap(fixture.factory.last).isWriterOpenForTesting)
+    }
+
+    /// History turned off and on again with the index kept: the new indexer hasn't read a
+    /// thing yet, but the storage is back and the snapshot says nothing is removed.
+    func test_live_sessions_stay_hidden_until_a_restarted_indexer_has_read_its_tombstones() throws {
+        let fixture = makeFixture()
+        try writeState(fixture.paths) { $0.enabled = true; $0.consentedAt = Date() }
+        XCTAssertTrue(launch(fixture.controller))
+        waitForStatus(fixture.controller, "watching") { $0.state == .watching }
+
+        let removedKey = AgentHistorySessionKey(agent: .claude, nativeID: "claude-outside")
+        let otherKey = AgentHistorySessionKey(agent: .claude, nativeID: "not-indexed-yet")
+        let removed = expectation(description: "removed")
+        fixture.controller.removeSession(removedKey) { ok in
+            XCTAssertTrue(ok)
+            removed.fulfill()
+        }
+        wait(for: [removed], timeout: 5)
+        fixture.controller.setEnabled(false)
+        waitForStatus(fixture.controller, "off") { $0.state == .off }
+
+        let released = DispatchSemaphore(value: 0)
+        addTeardownBlock { released.signal() }
+        let made = expectation(description: "second indexer made")
+        fixture.factory.setOnMake { indexer in
+            indexer.queue.async { released.wait() }
+            made.fulfill()
+        }
+        fixture.controller.setEnabled(true)
+        wait(for: [made], timeout: 5)
+
+        let adapter = AgentHistorySearchAdapter(controller: fixture.controller)
+        let locations = [removedKey, otherKey].map(Self.liveLocation)
+        XCTAssertEqual(
+            adapter.liveSessions(for: locations), [.hidden, .hidden],
+            "nothing has said yet which sessions are removed"
+        )
+
+        released.signal()
+        waitForStatus(fixture.controller, "second indexer watching") { $0.state == .watching }
+        XCTAssertEqual(adapter.liveSessions(for: locations), [.hidden, .notIndexed])
+    }
+
+    private static func liveLocation(_ key: AgentHistorySessionKey) -> LiveAgentSessionLocation {
+        LiveAgentSessionLocation(
+            key: key, windowID: WindowID("window"), worklaneID: WorklaneID("worklane"),
+            paneID: PaneID("pane-\(key.nativeID)"), tool: .claudeCode, rawSessionID: key.nativeID,
+            pid: 42, paneDisplayName: "Pane", worklaneDisplayName: "zentty", windowTitle: "Zentty",
+            workingDirectory: "/work/project", updatedAt: Date(timeIntervalSince1970: 1_800_000_000),
+            matchSource: .status
+        )
     }
 
     private final class Flag: @unchecked Sendable {

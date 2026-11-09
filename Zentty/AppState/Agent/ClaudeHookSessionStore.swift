@@ -38,6 +38,10 @@ struct ClaudeHookSessionRecord: Codable, Equatable {
     /// A PostToolUse from a different agent context is a sibling and must
     /// leave the prompt alone.
     var lastStructuredInteractionAgentID: String? = nil
+    /// Minted for each stored prompt and carried to the pane on its payload.
+    /// Delivery to the app lags the hook, so only this tells which prompt the
+    /// pane was showing when a spinner title says it was answered.
+    var structuredInteractionPromptID: String? = nil
     /// Unclaimed PreToolUse announcements per agent context (Bash/Write/Edit
     /// matcher set), oldest first, keyed by `agent_id` with `""` for the
     /// parent. A PermissionRequest for the same tool in the same context
@@ -149,6 +153,7 @@ extension ClaudeHookSessionRecord {
         case lastStructuredInteractionToolUseID
         case lastStructuredInteractionToolName
         case lastStructuredInteractionAgentID
+        case structuredInteractionPromptID
         case preToolUseSlotsByAgentID
         case lastNotificationText
         case tasks
@@ -158,9 +163,9 @@ extension ClaudeHookSessionRecord {
     }
 
     /// Records written by an older build lack the newer keys. Synthesized
-    /// decoding would throw on those, `loadState` would fall back to an empty
-    /// file and the next save would wipe every live session, so every field
-    /// added after the first release decodes as optional here.
+    /// decoding would throw on those and `loadState` would set the whole file
+    /// aside, losing every live session, so every field added after the first
+    /// release decodes as optional here.
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         sessionID = try container.decode(String.self, forKey: .sessionID)
@@ -178,6 +183,7 @@ extension ClaudeHookSessionRecord {
         lastStructuredInteractionToolUseID = try container.decodeIfPresent(String.self, forKey: .lastStructuredInteractionToolUseID)
         lastStructuredInteractionToolName = try container.decodeIfPresent(String.self, forKey: .lastStructuredInteractionToolName)
         lastStructuredInteractionAgentID = try container.decodeIfPresent(String.self, forKey: .lastStructuredInteractionAgentID)
+        structuredInteractionPromptID = try container.decodeIfPresent(String.self, forKey: .structuredInteractionPromptID)
         do {
             preToolUseSlotsByAgentID = try container.decodeIfPresent([String: [ClaudePreToolUseSlot]].self, forKey: .preToolUseSlotsByAgentID) ?? [:]
         } catch {
@@ -219,6 +225,7 @@ extension ClaudeHookSessionRecord {
         try container.encodeIfPresent(lastStructuredInteractionToolUseID, forKey: .lastStructuredInteractionToolUseID)
         try container.encodeIfPresent(lastStructuredInteractionToolName, forKey: .lastStructuredInteractionToolName)
         try container.encodeIfPresent(lastStructuredInteractionAgentID, forKey: .lastStructuredInteractionAgentID)
+        try container.encodeIfPresent(structuredInteractionPromptID, forKey: .structuredInteractionPromptID)
         try container.encode(preToolUseSlotsByAgentID, forKey: .preToolUseSlotsByAgentID)
         try container.encodeIfPresent(lastNotificationText, forKey: .lastNotificationText)
         try container.encode(tasks, forKey: .tasks)
@@ -436,6 +443,8 @@ final class ClaudeHookSessionStore {
         }
     }
 
+    /// Returns the stored prompt's identity for its payload to carry.
+    @discardableResult
     func rememberStructuredInteraction(
         sessionID: String,
         windowID: WindowID? = nil,
@@ -450,13 +459,13 @@ final class ClaudeHookSessionStore {
         toolName: String? = nil,
         agentID: String? = nil,
         consumedPreToolUseID: String? = nil
-    ) throws {
+    ) throws -> String? {
         let normalizedSessionID = normalized(sessionID)
         guard !normalizedSessionID.isEmpty else {
-            return
+            return nil
         }
 
-        try withLockedState { state in
+        return try withLockedState { state in
             let now = Date().timeIntervalSince1970
             var record = state.sessions[normalizedSessionID] ?? ClaudeHookSessionRecord(
                 sessionID: normalizedSessionID,
@@ -490,6 +499,8 @@ final class ClaudeHookSessionStore {
             record.lastStructuredInteractionToolUseID = normalizedOptional(toolUseID)
             record.lastStructuredInteractionToolName = normalizedOptional(toolName)
             record.lastStructuredInteractionAgentID = normalizedOptional(agentID)
+            let promptID = UUID().uuidString
+            record.structuredInteractionPromptID = promptID
             if let consumedPreToolUseID = normalizedOptional(consumedPreToolUseID) {
                 let key = ClaudeHookSessionRecord.preToolUseSlotKey(agentID: agentID)
                 var slots = record.preToolUseSlotsByAgentID[key] ?? []
@@ -501,6 +512,7 @@ final class ClaudeHookSessionStore {
             record.lastNotificationText = nil
             record.updatedAt = now
             state.sessions[normalizedSessionID] = record
+            return promptID
         }
     }
 
@@ -596,8 +608,10 @@ final class ClaudeHookSessionStore {
     /// resume in the app races the next PermissionRequest: if the bridge has
     /// already stored a newer prompt, this leaves it alone. The pane may be
     /// showing the Notification message that arrived for the prompt rather
-    /// than the prompt text itself, so both count as a match.
-    func clearInteractionContext(sessionID: String, ifTextMatches text: String?) throws {
+    /// than the prompt text itself, so both count as a match. Text cannot tell
+    /// apart two prompts that read the same, so a stored prompt other than
+    /// `shownPromptID` is left alone too.
+    func clearInteractionContext(sessionID: String, ifTextMatches text: String?, shownPromptID: String?) throws {
         let normalizedSessionID = normalized(sessionID)
         guard !normalizedSessionID.isEmpty, let expectedText = normalizedOptional(text) else {
             return
@@ -608,6 +622,9 @@ final class ClaudeHookSessionStore {
                   record.structuredInteractionText == expectedText
                     || record.lastNotificationText == expectedText
             else {
+                return
+            }
+            if let storedPromptID = record.structuredInteractionPromptID, storedPromptID != shownPromptID {
                 return
             }
             clearInteractionContext(in: &record, keepsPreToolUseSlots: true)
@@ -622,6 +639,7 @@ final class ClaudeHookSessionStore {
         record.lastStructuredInteractionToolUseID = nil
         record.lastStructuredInteractionToolName = nil
         record.lastStructuredInteractionAgentID = nil
+        record.structuredInteractionPromptID = nil
         if !keepsPreToolUseSlots {
             record.preToolUseSlotsByAgentID.removeAll()
         }
@@ -823,17 +841,38 @@ final class ClaudeHookSessionStore {
         }
         defer { flock(descriptor, LOCK_UN) }
 
-        var state = loadState()
+        var state = try loadState()
         let result = try body(&state)
         try saveState(state)
         return result
     }
 
-    private func loadState() -> ClaudeHookSessionStoreFile {
-        guard let data = try? Data(contentsOf: stateURL) else {
+    /// Every load is followed by a save, so an empty result replaces the file.
+    /// A file that cannot be read throws and stays. One that reads but cannot
+    /// be decoded is set aside so hooks keep working on a fresh store.
+    private func loadState() throws -> ClaudeHookSessionStoreFile {
+        guard fileManager.fileExists(atPath: stateURL.path) else {
             return ClaudeHookSessionStoreFile()
         }
-        return (try? decoder.decode(ClaudeHookSessionStoreFile.self, from: data)) ?? ClaudeHookSessionStoreFile()
+        let data = try Data(contentsOf: stateURL)
+        do {
+            return try decoder.decode(ClaudeHookSessionStoreFile.self, from: data)
+        } catch {
+            try quarantineStateFile()
+            return ClaudeHookSessionStoreFile()
+        }
+    }
+
+    /// Keeps a single copy under a fixed name: a build that keeps failing to
+    /// decode must not pile up files. Logs no error text, which can quote
+    /// session content.
+    private func quarantineStateFile() throws {
+        let quarantineURL = stateURL.deletingPathExtension().appendingPathExtension("corrupt.json")
+        if fileManager.fileExists(atPath: quarantineURL.path) {
+            try fileManager.removeItem(at: quarantineURL)
+        }
+        try fileManager.moveItem(at: stateURL, to: quarantineURL)
+        claudeHookSessionStoreLogger.error("Set aside undecodable hook session store as \(quarantineURL.lastPathComponent, privacy: .public)")
     }
 
     private func saveState(_ state: ClaudeHookSessionStoreFile) throws {

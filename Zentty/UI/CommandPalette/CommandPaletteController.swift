@@ -231,11 +231,21 @@ final class CommandPaletteController {
             context.timingFunction = CAMediaTimingFunction(name: .easeIn)
             panel.animator().alphaValue = 0
         }, completionHandler: {
-            MainActorShim.assumeIsolated {
-                parentWindow.removeChildWindow(panel)
-                panel.orderOut(nil)
-            }
+            MainActorShim.assumeIsolated { Self.detach(panel, from: parentWindow) }
         })
+        // The window animator only ticks while the display draws. With the display off the
+        // fade never ends, so the panel also leaves on the clock. Every show() builds a new
+        // panel, so a late detach can't touch a reopened palette.
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.fadeOutDeadline) {
+            MainActorShim.assumeIsolated { Self.detach(panel, from: parentWindow) }
+        }
+    }
+
+    private static let fadeOutDeadline: TimeInterval = 0.25
+
+    private static func detach(_ panel: NSPanel, from parent: NSWindow) {
+        parent.removeChildWindow(panel)
+        panel.orderOut(nil)
     }
 
     func updateTheme(_ theme: ZenttyTheme) {

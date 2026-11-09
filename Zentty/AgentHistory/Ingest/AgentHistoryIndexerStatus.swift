@@ -134,6 +134,8 @@ struct AgentHistoryStatus: Equatable, Sendable {
     var sources: [AgentHistorySourceHealth]
     var indexedSessions: Int
     var removedSessionCount: Int
+    /// The tombstones in force, so a palette can drop what another instance removed.
+    var removedKeys: Set<AgentHistorySessionKey> = []
     var indexExists: Bool
     var indexSizeBytes: Int64
     var lastUpdatedAt: Date?
@@ -152,6 +154,7 @@ struct AgentHistoryStatus: Equatable, Sendable {
         sources: [],
         indexedSessions: 0,
         removedSessionCount: 0,
+        removedKeys: [],
         indexExists: false,
         indexSizeBytes: 0,
         lastUpdatedAt: nil,
@@ -159,6 +162,36 @@ struct AgentHistoryStatus: Equatable, Sendable {
         isBackfillComplete: false,
         revision: 0
     )
+
+    /// Consented but switched off, as read from `state.json`. Not "no engine": the engine is also
+    /// missing for a moment on every launch.
+    var isTurnedOff: Bool {
+        isStateLoaded && hasConsented && !isEnabled
+    }
+
+    /// Whether Rebuild can act. No indexer runs while `.off` or `.paused(.configUnreadable)`, and
+    /// a standby instance never replaces the owner's index. A failed index stays rebuildable:
+    /// that is the way out of it. The indexer's own guard stays authoritative.
+    var canRebuild: Bool {
+        switch state {
+        case .off, .paused(.anotherInstance, _), .paused(.configUnreadable, _):
+            false
+        case .starting, .backfilling, .watching, .paused, .failed:
+            true
+        }
+    }
+
+    /// Whether the index takes user-driven writes such as Restore All: an indexer runs, owns the
+    /// index and has room. The lifecycle can still change after this is read, so the indexer's
+    /// own guard stays authoritative.
+    var acceptsIndexWrites: Bool {
+        switch state {
+        case .starting, .backfilling, .watching, .paused(.lowPower, _), .paused(.thermal, _):
+            true
+        case .off, .paused, .failed:
+            false
+        }
+    }
 }
 
 /// What the pre-consent probe found for one agent root (stat-only, D11). An agent with no root

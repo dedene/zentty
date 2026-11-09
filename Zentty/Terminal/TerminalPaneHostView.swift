@@ -218,6 +218,10 @@ final class TerminalPaneHostView: NSView, TerminalViewportDiagnosticsContextConf
         searchHUDView.focusField(selectAll: selectAll)
     }
 
+    var searchHUDOwnsFirstResponder: Bool {
+        searchHUDView.ownsFirstResponder
+    }
+
     func updateSearchHUDShortcutTooltips(_ shortcutManager: ShortcutManager) {
         searchHUDView.updateShortcutTooltips(shortcutManager)
     }
@@ -404,6 +408,25 @@ private enum PaneSearchOwner: Equatable {
     case global
 }
 
+/// The local query Ghostty's search thread holds, with the results it last
+/// reported. Ghostty ignores a repeated needle and resends nothing for it, so
+/// these are the only copy of the results for that needle.
+private struct ActiveLocalSearch {
+    let needle: String
+    var selected = -1
+    var total = 0
+
+    /// Mirrors the search thread's own check: ASCII-only case folding, so a
+    /// non-ASCII case change is still a new query.
+    func isSameQuery(as other: String) -> Bool {
+        needle.utf8.elementsEqual(other.utf8) { Self.asciiLowercased($0) == Self.asciiLowercased($1) }
+    }
+
+    private static func asciiLowercased(_ byte: UInt8) -> UInt8 {
+        (UInt8(ascii: "A")...UInt8(ascii: "Z")).contains(byte) ? byte + 32 : byte
+    }
+}
+
 private enum PaneRestoreDraftLifecycleState: Equatable {
     case none
     case pending(String)
@@ -435,11 +458,14 @@ final class PaneRuntime {
     private var hasSentInitialCommand = false
     private var hasObservedShellReady = false
     private var restoreDraftLifecycleState: PaneRestoreDraftLifecycleState
+    /// Accepted pastes still on their way. There can be several: an upload can
+    /// overlap a confirmation prompt. Only `applyUserPasteHold` changes this.
+    private var heldUserPasteCount = 0
     private var pendingStartupTextWorkItem: DispatchWorkItem?
     private var observers: [UUID: (PaneRuntimeSnapshot) -> Void] = [:]
     private var searchUpdateWorkItem: DispatchWorkItem?
-    private var ignoreNextTerminalBlurForSearchFocus = false
     private var searchOwner: PaneSearchOwner = .none
+    private var activeLocalSearch: ActiveLocalSearch?
     private var globalSearchNeedle = ""
     private var globalSearchEventSink: ((PaneID, TerminalSearchEvent) -> Void)?
     private var hasActiveGlobalSearchSession = false
@@ -623,16 +649,23 @@ final class PaneRuntime {
             search.hasRememberedSearch = true
         }
 
+        searchUpdateWorkItem?.cancel()
+
+        if let activeLocalSearch, activeLocalSearch.isSameQuery(as: needle) {
+            search.selected = activeLocalSearch.selected
+            search.total = activeLocalSearch.total
+            return
+        }
+
         search.selected = -1
         search.total = 0
-
-        searchUpdateWorkItem?.cancel()
 
         let dispatchUpdate = { [weak self] in
             guard let self else {
                 return
             }
 
+            self.activeLocalSearch = needle.isEmpty ? nil : ActiveLocalSearch(needle: needle)
             (self.adapterValue as? any TerminalSearchControlling)?.updateSearch(needle: needle)
         }
 
@@ -676,6 +709,7 @@ final class PaneRuntime {
 
     func endSearch() {
         searchUpdateWorkItem?.cancel()
+        activeLocalSearch = nil
         searchOwner = .none
         globalSearchNeedle = ""
         globalSearchEventSink = nil
@@ -692,21 +726,23 @@ final class PaneRuntime {
         search.isHUDVisible = false
     }
 
-    func prepareSearchFieldFocusTransfer() {
-        ignoreNextTerminalBlurForSearchFocus = true
-    }
-
     func handleTerminalFocusChange(_ isFocused: Bool) {
         guard !isFocused, search.isHUDVisible else {
             return
         }
 
-        if ignoreNextTerminalBlurForSearchFocus {
-            ignoreNextTerminalBlurForSearchFocus = false
-            return
-        }
+        // The window still names the old responder during resignFirstResponder,
+        // so where focus landed is only known a tick later. A terminal that took
+        // focus straight back never really lost it.
+        DispatchQueue.main.async { [weak self] in
+            guard let self,
+                  !self.hostViewValue.searchHUDOwnsFirstResponder,
+                  !self.hostViewValue.isTerminalFocused else {
+                return
+            }
 
-        hideSearchHUD()
+            self.hideSearchHUD()
+        }
     }
 
     func setSearchHUDCorner(_ corner: PaneSearchHUDCorner) {
@@ -730,6 +766,7 @@ final class PaneRuntime {
     }
 
     func updateGlobalSearchNeedle(_ needle: String) {
+        activeLocalSearch = nil
         searchOwner = .global
         globalSearchNeedle = needle
         (adapterValue as? any TerminalSearchControlling)?.updateSearch(needle: needle)
@@ -768,6 +805,7 @@ final class PaneRuntime {
             return
         }
 
+        activeLocalSearch = nil
         searchOwner = .none
         globalSearchNeedle = ""
         globalSearchEventSink = nil
@@ -800,6 +838,23 @@ final class PaneRuntime {
 
     func updateSearchHUDShortcutTooltips(_ shortcutManager: ShortcutManager) {
         hostViewValue.updateSearchHUDShortcutTooltips(shortcutManager)
+    }
+
+    /// Sends text the user pasted through Zentty rather than the terminal, such as
+    /// the path of a finished remote upload. Unlike `adapter.sendText`, this counts
+    /// as their input.
+    func sendUserPaste(_ text: String) {
+        adapterValue.sendText(text)
+        handleEventDidOccur(.userEditedInput)
+    }
+
+    /// Keeps the restore draft back for a user paste that is still on its way, such
+    /// as a remote upload. Call the result once when the paste arrives or is given up.
+    func holdForUserPaste() -> @MainActor () -> Void {
+        applyUserPasteHold(.began)
+        return { [weak self] in
+            self?.applyUserPasteHold(.ended)
+        }
     }
 
     func setRemoteImagePasteHandler(
@@ -843,10 +898,27 @@ final class PaneRuntime {
             scheduleStartupTextIfNeeded(using: metadata)
         case .userEditedInput, .userSubmittedInput:
             consumeRestoreDraftIfNeeded()
+        case .userPasteHold(let hold):
+            applyUserPasteHold(hold)
+            return
         default:
             break
         }
         eventSink(paneIDValue, event)
+    }
+
+    /// A scheduled flush isn't cancelled when a hold begins, because it may carry the
+    /// initial command; `canSendRestoreDraft` stops the draft instead. A delivered
+    /// paste has consumed the draft by the time its hold ends, so rescheduling only
+    /// revives a draft whose paste never arrived.
+    private func applyUserPasteHold(_ hold: TerminalUserPasteHold) {
+        switch hold {
+        case .began:
+            heldUserPasteCount += 1
+        case .ended:
+            heldUserPasteCount = max(0, heldUserPasteCount - 1)
+            scheduleStartupTextIfNeeded(using: metadata)
+        }
     }
 
     private func scheduleStartupTextIfNeeded(using metadata: TerminalMetadata) {
@@ -924,6 +996,7 @@ final class PaneRuntime {
         guard case .pending(let draftText) = restoreDraftLifecycleState,
               hasSentInitialCommand == false,
               normalizedInitialCommand == nil,
+              heldUserPasteCount == 0,
               hasObservedShellReady else {
             return false
         }
@@ -934,8 +1007,11 @@ final class PaneRuntime {
     private func consumeRestoreDraftIfNeeded() {
         switch restoreDraftLifecycleState {
         case .pending, .injected:
-            pendingStartupTextWorkItem?.cancel()
-            pendingStartupTextWorkItem = nil
+            // The same work item delivers the initial command, which this input doesn't replace.
+            if !canSendInitialCommand(using: metadata) {
+                pendingStartupTextWorkItem?.cancel()
+                pendingStartupTextWorkItem = nil
+            }
             restoreDraftLifecycleState = .consumed
         case .none, .consumed:
             return
@@ -981,15 +1057,23 @@ final class PaneRuntime {
                 if let needle {
                     search.needle = needle
                 }
+                // search_selection only announces the needle; the search itself
+                // still has to be requested.
+                if let needle, !needle.isEmpty {
+                    updateSearchNeedle(needle)
+                }
                 search.hasRememberedSearch = true
                 search.isHUDVisible = true
             case .ended:
+                activeLocalSearch = nil
                 searchOwner = .none
                 search = clearedSearchState()
             case .total(let total):
                 search.total = total
+                activeLocalSearch?.total = total
             case .selected(let selected):
                 search.selected = selected
+                activeLocalSearch?.selected = selected
             }
         case .global:
             globalSearchEventSink?(paneIDValue, event)

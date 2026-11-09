@@ -372,64 +372,6 @@ final class CursorTaskStore {
         }
     }
 
-    /// Track a live Cursor Task/subagent for the parent session.
-    /// Returns whether the session still has any open subagents after the update.
-    ///
-    /// Uses a count (not only IDs) because Cursor's `subagentStop` payload often
-    /// omits `subagent_id` even when `subagentStart` provided one.
-    @discardableResult
-    func trackSubagentStart(sessionID: String?, subagentID: String?) throws -> Bool {
-        guard let key = normalizedOptional(sessionID) else { return false }
-        return try withLockedState { state in
-            var entry = state.sessions[key] ?? SessionEntry()
-            if let subagentKey = normalizedOptional(subagentID) {
-                // Idempotent per-id: Cursor may re-emit start for the same worker.
-                if entry.openSubagentIDs.insert(subagentKey).inserted {
-                    entry.openSubagentCount += 1
-                }
-            } else {
-                entry.openSubagentCount += 1
-            }
-            entry.updatedAt = Date().timeIntervalSince1970
-            state.sessions[key] = entry
-            return entry.openSubagentCount > 0
-        }
-    }
-
-    /// Clear a finished Cursor Task/subagent for the parent session.
-    /// Returns whether the session still has any open subagents after the update.
-    @discardableResult
-    func trackSubagentStop(sessionID: String?, subagentID: String?) throws -> Bool {
-        guard let key = normalizedOptional(sessionID) else { return false }
-        return try withLockedState { state in
-            guard var entry = state.sessions[key] else { return false }
-            entry.openSubagentCount = max(0, entry.openSubagentCount - 1)
-            if let subagentKey = normalizedOptional(subagentID) {
-                entry.openSubagentIDs.remove(subagentKey)
-            }
-            // Count is authoritative. Always wipe IDs at zero so a mismatched
-            // tool_call_id fallback can't leave a stale id that the decoder
-            // would resurrect as count=1 on the next reload.
-            if entry.openSubagentCount == 0 {
-                entry.openSubagentIDs.removeAll()
-            }
-            entry.updatedAt = Date().timeIntervalSince1970
-            if entry.isEmpty {
-                state.sessions.removeValue(forKey: key)
-                return false
-            }
-            state.sessions[key] = entry
-            return entry.openSubagentCount > 0
-        }
-    }
-
-    func hasOpenSubagents(sessionID: String?) throws -> Bool {
-        guard let key = normalizedOptional(sessionID) else { return false }
-        return try withLockedState { state in
-            (state.sessions[key]?.openSubagentCount ?? 0) > 0
-        }
-    }
-
     func clearSession(sessionID: String?) throws {
         guard let key = normalizedOptional(sessionID) else { return }
         try withLockedState { state in
@@ -446,8 +388,6 @@ final class CursorTaskStore {
         var doneCount: Int = 0
         var todos: [TodoEntry] = []
         var items: [PaneAgentTaskItem] = []
-        var openSubagentCount: Int = 0
-        var openSubagentIDs: Set<String> = []
         var updatedAt: TimeInterval = 0
 
         var progress: PaneAgentTaskProgress? {
@@ -469,7 +409,7 @@ final class CursorTaskStore {
         }
 
         var isEmpty: Bool {
-            todos.isEmpty && items.isEmpty && totalCount == 0 && doneCount == 0 && openSubagentCount == 0 && openSubagentIDs.isEmpty
+            todos.isEmpty && items.isEmpty && totalCount == 0 && doneCount == 0
         }
 
         init() {}
@@ -490,15 +430,6 @@ final class CursorTaskStore {
                 todos = []
             }
             items = (try? container.decodeIfPresent([PaneAgentTaskItem].self, forKey: .items)) ?? []
-            openSubagentCount = try container.decodeIfPresent(Int.self, forKey: .openSubagentCount) ?? 0
-            openSubagentIDs = try container.decodeIfPresent(Set<String>.self, forKey: .openSubagentIDs) ?? []
-            // Count is authoritative. Drop orphan ids left by older builds so a
-            // reload cannot resurrect a phantom open-subagent count.
-            if openSubagentCount == 0, !openSubagentIDs.isEmpty {
-                openSubagentIDs.removeAll()
-            } else if openSubagentCount > 0, openSubagentIDs.count > openSubagentCount {
-                openSubagentIDs.removeAll()
-            }
             updatedAt = try container.decodeIfPresent(TimeInterval.self, forKey: .updatedAt) ?? 0
         }
     }

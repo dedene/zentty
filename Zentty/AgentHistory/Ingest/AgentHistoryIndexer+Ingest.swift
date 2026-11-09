@@ -101,6 +101,8 @@ extension AgentHistoryIndexer {
 
     /// Queue empty (or only paused backfill left): persist counters, mark the first full
     /// backfill, optimize once, go `.watching`. Returns true when it queued more work.
+    /// Housekeeping that hits a full disk or corruption has already set the state and its
+    /// retry, so idle stops there; `retryAfterDiskFull` or the recovery comes back through here.
     @discardableResult
     func becomeIdle() -> Bool {
         guard lifecycle == .running, !corruptionRecoveryPending else {
@@ -120,9 +122,15 @@ extension AgentHistoryIndexer {
         runPendingSourcePurges()
         storePendingAdapterVersions()
         persistCounters()
+        guard !isWritingSuspended else {
+            return false
+        }
         hasDrainedOnce = true
         if !isBackfillComplete {
             markBackfillComplete()
+        }
+        guard !isWritingSuspended else {
+            return false
         }
         setState(.watching)
         publish()
@@ -449,15 +457,23 @@ extension AgentHistoryIndexer {
         guard let store else {
             return
         }
+        do {
+            try store.setMeta(Self.backfillCompletedMetaKey, String(Int64(now().timeIntervalSince1970 * 1_000)))
+        } catch {
+            // Still incomplete: the next idle pass writes the marker.
+            logWriteFailure(error, action: "save the backfill marker")
+            return
+        }
         isBackfillComplete = true
         snapshotDirty = true
         let started = ProcessInfo.processInfo.systemUptime
         do {
-            try store.setMeta(Self.backfillCompletedMetaKey, String(Int64(now().timeIntervalSince1970 * 1_000)))
+            try beforeHousekeepingWriteForTesting?(.optimize)
             try store.optimize()
-        } catch let error as AgentHistoryDatabaseError {
-            AgentHistoryLog.indexer.error("Agent History optimize failed \(error.description, privacy: .public)")
-        } catch {}
+        } catch {
+            // The marker is saved: only the optimize is lost.
+            logWriteFailure(error, action: "optimize the index")
+        }
         let elapsedMs = Int((ProcessInfo.processInfo.systemUptime - started) * 1_000)
         AgentHistoryLog.indexer.info(
             "Agent History backfill complete sessions=\(self.snapshotBuilder.count, privacy: .public) optimizeMs=\(elapsedMs, privacy: .public)"

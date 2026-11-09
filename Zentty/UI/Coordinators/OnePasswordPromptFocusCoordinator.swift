@@ -168,13 +168,19 @@ final class OnePasswordPromptFocusCoordinator {
         timer = nil
         knownWindowIDs = nil
         ticksUntilPresenceCheck = 0
+        invalidatePendingWork()
+    }
+
+    /// Forgets the tracked jump-back and orphans any attribution scan still running.
+    private func invalidatePendingWork() {
         pendingReturn = nil
+        scanGeneration += 1
     }
 
     private func poll() {
         guard hooks.isEnabled() else {
             knownWindowIDs = nil
-            pendingReturn = nil
+            invalidatePendingWork()
             return
         }
         if ticksUntilPresenceCheck == 0 {
@@ -183,7 +189,10 @@ final class OnePasswordPromptFocusCoordinator {
         }
         ticksUntilPresenceCheck -= 1
         guard onePasswordPresent else {
+            // Confirmed by the running-apps check, not a window snapshot, so this
+            // cannot be the gap between the Touch ID sheet and the approval panel.
             knownWindowIDs = nil
+            invalidatePendingWork()
             return
         }
         handleWindowSnapshot(snapshotter.onScreenWindows())
@@ -313,7 +322,7 @@ final class OnePasswordPromptFocusCoordinator {
     }
 
     private func finishScan(generation: Int, candidate: OnePasswordPromptCandidate?) {
-        guard generation == scanGeneration else { return }
+        guard generation == scanGeneration, hooks.isEnabled() else { return }
         guard let candidate else {
             Self.logger.debug("No pane holds a live 1Password request")
             if pendingReturn?.candidate == nil {
@@ -341,4 +350,10 @@ final class OnePasswordPromptFocusCoordinator {
         )
         hooks.reveal(candidate)
     }
+
+#if DEBUG
+    func pollForTesting() {
+        poll()
+    }
+#endif
 }

@@ -245,7 +245,7 @@ extension AgentEventBridge {
                         ?? AgentInteractionClassifier.preferredWaitingMessage(existing: sessionRecord?.lastNotificationText, candidate: originalMessage)
                         ?? "Claude is waiting for your input"
                 }
-                return [claudeLifecyclePayload(target: target, state: .needsInput, text: message, interactionKind: structuredKind, confidence: structuredConfidence, sessionID: input.sessionID)]
+                return [claudeLifecyclePayload(target: target, state: .needsInput, text: message, interactionKind: structuredKind, interactionPromptID: sessionRecord?.structuredInteractionPromptID, confidence: structuredConfidence, sessionID: input.sessionID)]
             }
 
             let message: String
@@ -273,8 +273,9 @@ extension AgentEventBridge {
             let toolUseID = input.toolUseID
                 ?? inheritedToolUseID
                 ?? claudeRetainedStructuredToolUseID(input: input, existing: existing)
+            var promptID: String?
             if let sessionID = input.sessionID {
-                try sessionStore.rememberStructuredInteraction(
+                promptID = try sessionStore.rememberStructuredInteraction(
                     sessionID: sessionID,
                     windowID: existing?.windowID ?? target.windowID,
                     worklaneID: existing?.worklaneID ?? target.worklaneID,
@@ -293,7 +294,7 @@ extension AgentEventBridge {
                     consumedPreToolUseID: inheritedToolUseID
                 )
             }
-            return [claudeLifecyclePayload(target: target, state: .needsInput, text: message, interactionKind: interaction.interactionKind, confidence: .explicit, sessionID: input.sessionID)]
+            return [claudeLifecyclePayload(target: target, state: .needsInput, text: message, interactionKind: interaction.interactionKind, interactionPromptID: promptID, confidence: .explicit, sessionID: input.sessionID)]
 
         case "PreToolUse":
             let target = try claudeResolvedTarget(for: input, environment: environment, sessionStore: sessionStore)
@@ -307,7 +308,7 @@ extension AgentEventBridge {
                     candidateText: prompt.text,
                     candidateKind: prompt.interactionKind
                 )
-                try sessionStore.rememberStructuredInteraction(
+                let promptID = try sessionStore.rememberStructuredInteraction(
                     sessionID: sessionID,
                     windowID: existing?.windowID ?? target.windowID,
                     worklaneID: existing?.worklaneID ?? target.worklaneID,
@@ -321,7 +322,7 @@ extension AgentEventBridge {
                     toolName: input.toolName,
                     agentID: input.agentID
                 )
-                return [claudeLifecyclePayload(target: target, state: .needsInput, text: message, interactionKind: prompt.interactionKind, confidence: .explicit, sessionID: input.sessionID)]
+                return [claudeLifecyclePayload(target: target, state: .needsInput, text: message, interactionKind: prompt.interactionKind, interactionPromptID: promptID, confidence: .explicit, sessionID: input.sessionID)]
             }
             let preToolExisting = try claudeLookupRecord(for: input, sessionStore: sessionStore)
             if let sessionID = input.sessionID {
@@ -366,6 +367,13 @@ extension AgentEventBridge {
             let target = try claudeResolvedTarget(for: input, environment: environment, sessionStore: sessionStore)
             let existing = try claudeLookupRecord(for: input, sessionStore: sessionStore)
             if input.hookEventName == "PostToolUseFailure", input.isInterrupt {
+                // A subagent's tool can be interrupted while the parent keeps
+                // working, and it says nothing about another context's prompt.
+                if input.agentID != nil,
+                   existing?.structuredInteractionKind?.requiresHumanAttention != true
+                    || claudePreToolUseBelongsToOtherAgent(input: input, existing: existing) {
+                    return []
+                }
                 // The user pressed Escape / Ctrl-C during the tool. Claude is
                 // back at its prompt and no Stop hook will follow. An animated
                 // title ("✳") may already have driven the pane idle, but a
@@ -376,11 +384,7 @@ extension AgentEventBridge {
                 }
                 // Escape on an open permission / question dialog: the title
                 // already showed "✳" while the dialog was up, so nothing else
-                // moves the pane off needsInput. A subagent's tool, though, can
-                // be interrupted while the parent keeps working.
-                guard existing?.structuredInteractionKind != nil || input.agentID == nil else {
-                    return []
-                }
+                // moves the pane off needsInput.
                 let subagents = try subagentStore.summary(key: claudeSubagentKey(target))
                 return [claudeLifecyclePayload(
                     target: target, state: .idle, lifecycleEvent: .interrupt,
@@ -434,10 +438,10 @@ extension AgentEventBridge {
 
         case "SubagentStart":
             let target = try claudeResolvedTarget(for: input, environment: environment, sessionStore: sessionStore)
-            if let sessionID = input.sessionID {
-                try sessionStore.clearInteractionContext(sessionID: sessionID, keepsPreToolUseSlots: true)
-            }
             let existing = try claudeLookupRecord(for: input, sessionStore: sessionStore)
+            // The hook names no tool call, so even during an open Agent/Task
+            // prompt this can be an earlier call's worker or a nested spawn.
+            // An approved launch resumes through its PostToolUse or the title.
             let entry = claudeSubagentEntry(
                 for: input,
                 sessionTranscriptPath: input.transcriptPath ?? existing?.transcriptPath
@@ -445,6 +449,7 @@ extension AgentEventBridge {
             let subagents = try subagentStore.start(key: claudeSubagentKey(target), entry: entry)
             return [claudeLifecyclePayload(
                 target: target, state: .running, cwd: input.cwd ?? existing?.cwd,
+                lifecycleEvent: .backgroundActivity,
                 interactionKind: .none, confidence: .explicit, sessionID: input.sessionID,
                 taskProgress: try sessionStore.taskProgress(sessionID: input.sessionID),
                 subagents: subagents
@@ -475,16 +480,30 @@ extension AgentEventBridge {
             let target = try claudeResolvedTarget(for: input, environment: environment, sessionStore: sessionStore)
             guard let sessionID = input.sessionID, let taskID = input.taskID else { return [] }
             let taskProgress = try sessionStore.updateTask(sessionID: sessionID, taskID: taskID, subject: input.taskSubject, status: .pending)
-            return [claudeLifecyclePayload(target: target, state: .running, cwd: input.cwd, interactionKind: .none, confidence: .explicit, sessionID: sessionID, taskProgress: taskProgress)]
+            return [claudeLifecyclePayload(target: target, state: .running, cwd: input.cwd, lifecycleEvent: .backgroundActivity, interactionKind: .none, confidence: .explicit, sessionID: sessionID, taskProgress: taskProgress)]
 
         case "TaskCompleted":
             let target = try claudeResolvedTarget(for: input, environment: environment, sessionStore: sessionStore)
             guard let sessionID = input.sessionID, let taskID = input.taskID else { return [] }
             let taskProgress = try sessionStore.updateTask(sessionID: sessionID, taskID: taskID, subject: input.taskSubject, status: .done)
-            return [claudeLifecyclePayload(target: target, state: .running, cwd: input.cwd, interactionKind: .none, confidence: .explicit, sessionID: sessionID, taskProgress: taskProgress)]
+            return [claudeLifecyclePayload(target: target, state: .running, cwd: input.cwd, lifecycleEvent: .backgroundActivity, interactionKind: .none, confidence: .explicit, sessionID: sessionID, taskProgress: taskProgress)]
 
         case "Stop":
             let target = try claudeResolvedTarget(for: input, environment: environment, sessionStore: sessionStore)
+            // Agent tool calls run asynchronously: the parent ends its turn
+            // while its subagents keep working and is re-woken when they
+            // finish. Carry the live (liveness-pruned) set rather than
+            // blanking it; SubagentStop retires entries one by one.
+            let subagents = try subagentStore.summary(key: claudeSubagentKey(target))
+            // A live worker's dialog stays on screen after the parent's turn
+            // ends, and the prompt it stored is what keeps the pane on
+            // needsInput. Its tool hook, SubagentStop or the title clear it.
+            if claudePromptBelongsToLiveWorker(
+                existing: try claudeLookupRecord(for: input, sessionStore: sessionStore),
+                subagents: subagents
+            ) {
+                return []
+            }
             // Clear any cached structured interaction (PreToolUse(AskUserQuestion),
             // PermissionRequest) so a late Notification arriving after Stop
             // can't re-enter the structured-cache branch and flip the pane
@@ -492,11 +511,6 @@ extension AgentEventBridge {
             if let sessionID = input.sessionID {
                 try sessionStore.clearInteractionContext(sessionID: sessionID)
             }
-            // Agent tool calls run asynchronously: the parent ends its turn
-            // while its subagents keep working and is re-woken when they
-            // finish. Carry the live (liveness-pruned) set rather than
-            // blanking it; SubagentStop retires entries one by one.
-            let subagents = try subagentStore.summary(key: claudeSubagentKey(target))
             return [claudeLifecyclePayload(target: target, state: .idle, confidence: .explicit, sessionID: input.sessionID, subagents: subagents)]
 
         case "SubagentStop":
@@ -511,13 +525,15 @@ extension AgentEventBridge {
                 // same applies to a duplicate worker stop.
                 return []
             }
-            if let sessionID = input.sessionID {
+            let resolvesPrompt = claudeSubagentStopResolvesPrompt(input: input, existing: existing)
+            if resolvesPrompt, let sessionID = input.sessionID {
                 try sessionStore.clearInteractionContext(sessionID: sessionID, keepsPreToolUseSlots: true)
             }
             // The parent keeps working (it still has to read the subagent's
             // result), so this is a running update, not an idle transition.
             return [claudeLifecyclePayload(
                 target: target, state: .running, cwd: input.cwd ?? existing?.cwd,
+                lifecycleEvent: resolvesPrompt ? .update : .backgroundActivity,
                 interactionKind: .none, confidence: .explicit, sessionID: input.sessionID,
                 taskProgress: try sessionStore.taskProgress(sessionID: input.sessionID),
                 subagents: subagents
@@ -730,6 +746,7 @@ extension AgentEventBridge {
         cwd: String? = nil,
         lifecycleEvent: AgentLifecycleEvent? = .update,
         interactionKind: PaneAgentInteractionKind? = nil,
+        interactionPromptID: String? = nil,
         confidence: AgentSignalConfidence? = nil,
         sessionID: String? = nil,
         taskProgress: PaneAgentTaskProgress? = nil,
@@ -745,6 +762,7 @@ extension AgentEventBridge {
             text: text,
             lifecycleEvent: lifecycleEvent,
             interactionKind: interactionKind,
+            interactionPromptID: interactionPromptID,
             confidence: confidence,
             sessionID: sessionID,
             taskProgress: taskProgress,

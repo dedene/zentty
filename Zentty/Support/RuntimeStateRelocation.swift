@@ -8,12 +8,15 @@ private let runtimeStateRelocationLogger = Logger(subsystem: "be.zenjoy.zentty",
 /// hold files worth syncing between Macs (config.toml, bookmarks.json, agents/).
 ///
 /// Copies, never moves or deletes: older Zentty builds (other worktrees, a Mac
-/// not yet upgraded) may still be running against the old files. A marker
-/// file makes it run once, so later writes by those builds are never pulled in;
-/// it is only written after every copy succeeded, so a failed run is retried.
+/// not yet upgraded) may still be running against the old files. Rollback only
+/// removes what the failed attempt itself created. A marker file makes it run
+/// once, so later writes by those builds are never pulled in; it is only written
+/// after every copy succeeded, so a failed run is retried.
 enum RuntimeStateRelocation {
     /// Copied together or not at all: a snapshot paired with another
-    /// instance's lifecycle file can turn into a bogus crash recovery.
+    /// instance's lifecycle file can turn into a bogus crash recovery. The
+    /// snapshot goes first, so dying between the two copies leaves a snapshot
+    /// with no lifecycle, which reads as a normal restore.
     static let restoreFileNames = ["restore-snapshot.json", "restore-lifecycle.json"]
     static let tmuxCompatFileName = "tmux-compat-store.json"
     static let fileNames = restoreFileNames + [tmuxCompatFileName]
@@ -29,27 +32,23 @@ enum RuntimeStateRelocation {
         let markerURL = stateDirectoryURL.appendingPathComponent(markerFileName, isDirectory: false)
         guard !fileManager.fileExists(atPath: markerURL.path) else { return [] }
 
-        var namesToCopy: [String] = []
-        let snapshotName = restoreFileNames[0]
-        if !exists(snapshotName, in: stateDirectoryURL, fileManager),
-           exists(snapshotName, in: configDirectoryURL, fileManager) {
-            namesToCopy.append(contentsOf: restoreFileNames)
-        }
-        namesToCopy.append(tmuxCompatFileName)
-
         var copied: [String] = []
         var failed = false
-        for name in namesToCopy {
+        if restorePairNeedsCopy(from: configDirectoryURL, to: stateDirectoryURL, fileManager) {
             do {
-                if try copyIfMissing(name, from: configDirectoryURL, to: stateDirectoryURL, fileManager) {
-                    copied.append(name)
-                }
+                copied.append(contentsOf: try copyRestorePair(from: configDirectoryURL, to: stateDirectoryURL, fileManager))
             } catch {
                 failed = true
-                runtimeStateRelocationLogger.error(
-                    "Failed to copy \(name, privacy: .public) to \(stateDirectoryURL.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
-                )
+                logCopyFailure("restore files", to: stateDirectoryURL, error)
             }
+        }
+        do {
+            if try copyIfMissing(tmuxCompatFileName, from: configDirectoryURL, to: stateDirectoryURL, fileManager) {
+                copied.append(tmuxCompatFileName)
+            }
+        } catch {
+            failed = true
+            logCopyFailure(tmuxCompatFileName, to: stateDirectoryURL, error)
         }
         guard !failed else { return copied }
 
@@ -62,6 +61,99 @@ enum RuntimeStateRelocation {
             )
         }
         return copied
+    }
+
+    /// Where this launch's restore store belongs. A pair that could not be
+    /// copied stays authoritative in the config directory: the launch writes
+    /// its lifecycle and snapshots straight away, and in the empty state
+    /// directory those would read as existing state and end the retry for good.
+    static func restoreStoreDirectory(
+        from configDirectoryURL: URL,
+        to stateDirectoryURL: URL,
+        fileManager: FileManager = .default
+    ) -> URL {
+        restorePairNeedsCopy(from: configDirectoryURL, to: stateDirectoryURL, fileManager)
+            ? configDirectoryURL
+            : stateDirectoryURL
+    }
+
+    private static func restorePairNeedsCopy(
+        from configDirectoryURL: URL,
+        to stateDirectoryURL: URL,
+        _ fileManager: FileManager
+    ) -> Bool {
+        !exists(markerFileName, in: stateDirectoryURL, fileManager)
+            && !restoreFileNames.contains { exists($0, in: stateDirectoryURL, fileManager) }
+            && exists(restoreFileNames[0], in: configDirectoryURL, fileManager)
+    }
+
+    /// All or nothing: on failure it removes what this attempt created, so the
+    /// retry sees an empty slot rather than half a pair. The scrollback the
+    /// snapshot points at goes first: the pair ends the retry, and the snapshot
+    /// names those files relative to its own directory.
+    private static func copyRestorePair(
+        from sourceDirectory: URL,
+        to destinationDirectory: URL,
+        _ fileManager: FileManager
+    ) throws -> [String] {
+        let sourceScrollback = SessionScrollbackArchive(stateDirectoryURL: sourceDirectory)
+        let destinationScrollback = SessionScrollbackArchive(stateDirectoryURL: destinationDirectory)
+        var created: [URL] = []
+        func copy(_ name: String, from source: URL, to destination: URL) throws {
+            if try copyIfMissing(name, from: source, to: destination, fileManager) {
+                created.append(destination.appendingPathComponent(name, isDirectory: false))
+            }
+        }
+        do {
+            let scrollback = try referencedScrollback(in: sourceDirectory).filter {
+                sourceScrollback.existingFilePath(forFileName: $0, fileManager: fileManager) != nil
+            }
+            if !scrollback.isEmpty {
+                try fileManager.createDirectory(at: destinationDirectory, withIntermediateDirectories: true)
+                try destinationScrollback.ensureDirectory(fileManager: fileManager)
+            }
+            for name in scrollback {
+                try copy(name, from: sourceScrollback.directoryURL, to: destinationScrollback.directoryURL)
+            }
+            for name in restoreFileNames {
+                try copy(name, from: sourceDirectory, to: destinationDirectory)
+            }
+            return created.map(\.lastPathComponent)
+        } catch {
+            rollBack(created, fileManager)
+            throw error
+        }
+    }
+
+    /// Newest first, stopping at a file it can't remove: half a pair left behind
+    /// reads as existing state, so the scrollback copied before it has to stay.
+    private static func rollBack(_ created: [URL], _ fileManager: FileManager) {
+        for url in created.reversed() {
+            do {
+                try fileManager.removeItem(at: url)
+            } catch {
+                runtimeStateRelocationLogger.error(
+                    "Failed to roll back \(url.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)"
+                )
+                return
+            }
+        }
+    }
+
+    /// A snapshot that won't decode can't be restored either, so it has no
+    /// references to wait for. One that can't be read fails the attempt.
+    private static func referencedScrollback(in directory: URL) throws -> [String] {
+        do {
+            return try SessionRestoreStore(stateDirectoryURL: directory).referencedScrollbackFileNames().sorted()
+        } catch is DecodingError {
+            return []
+        }
+    }
+
+    private static func logCopyFailure(_ name: String, to directory: URL, _ error: Error) {
+        runtimeStateRelocationLogger.error(
+            "Failed to copy \(name, privacy: .public) to \(directory.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
+        )
     }
 
     private static func exists(_ name: String, in directory: URL, _ fileManager: FileManager) -> Bool {
@@ -81,7 +173,16 @@ enum RuntimeStateRelocation {
             return false
         }
         try fileManager.createDirectory(at: destinationDirectory, withIntermediateDirectories: true)
-        try fileManager.copyItem(at: sourceURL, to: destinationURL)
+        // Under a temporary name: a copy cut short must not look finished to the
+        // retry, which skips what exists, and rollback only knows completed copies.
+        let temporaryURL = destinationDirectory.appendingPathComponent(".\(UUID().uuidString).tmp", isDirectory: false)
+        do {
+            try fileManager.copyItem(at: sourceURL, to: temporaryURL)
+            try fileManager.moveItem(at: temporaryURL, to: destinationURL)
+        } catch {
+            try? fileManager.removeItem(at: temporaryURL)
+            throw error
+        }
         return true
     }
 }

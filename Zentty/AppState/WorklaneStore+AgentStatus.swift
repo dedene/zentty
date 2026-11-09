@@ -296,7 +296,7 @@ extension WorklaneStore {
                 auxiliaryState.agentStatus = auxiliaryState.agentReducerState.reducedStatus()
                 worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
             }
-        case .surfaceClosed:
+        case .surfaceClosed, .userPasteHold:
             return
         case .desktopNotification(let notification):
             let title = AgentInteractionClassifier.trimmed(notification.title)
@@ -448,7 +448,7 @@ extension WorklaneStore {
             auxiliaryState.raw.showsReadyStatus = false
             auxiliaryState.terminalProgress = nil
             worklane.auxiliaryStateByPaneID[payload.paneID] = auxiliaryState
-            cancelPendingReadyStatus(for: PaneReference(worklaneID: worklane.id, paneID: payload.paneID))
+            cancelPendingReadyStatus(for: payload.paneID)
             recomputePresentation(for: payload.paneID, in: &worklane)
             worklanes[worklaneIndex] = worklane
             let impacts = auxiliaryInvalidation(for: payload.paneID, previousWorklane: previousWorklane, nextWorklane: worklane)
@@ -537,6 +537,25 @@ extension WorklaneStore {
             stopSignalLogger.debug(
                 "codex.turnComplete skip=currentNeedsInputTitle pane=\(payload.paneID.rawValue, privacy: .public)"
             )
+            // Only the status change is suppressed; the transcript path still
+            // feeds question enrichment. Another session's path would fail
+            // that enrichment's session guard, so it is not kept.
+            let payloadSessionID = WorklaneContextFormatter.trimmed(payload.sessionID)
+            if payloadSessionID == nil
+                || payloadSessionID == WorklaneContextFormatter.trimmed(existingStatus?.sessionID) {
+                worklane.auxiliaryStateByPaneID[payload.paneID] = auxiliaryState
+                recomputePresentation(for: payload.paneID, in: &worklane)
+                worklanes[worklaneIndex] = worklane
+                let impacts = auxiliaryInvalidation(for: payload.paneID, previousWorklane: previousWorklane, nextWorklane: worklane)
+                if !impacts.isEmpty {
+                    notify(.auxiliaryStateUpdated(worklane.id, payload.paneID, impacts))
+                }
+                scheduleCodexQuestionEnrichmentIfPossible(
+                    worklaneID: worklane.id,
+                    paneID: payload.paneID,
+                    auxiliaryState: auxiliaryState
+                )
+            }
             return
         }
         if codexResolver.shouldSuppressPayloadDuringInterrupt(payload: payload, tool: tool, aux: auxiliaryState) {
@@ -604,6 +623,7 @@ extension WorklaneStore {
                     text: payload.text,
                     lifecycleEvent: payload.lifecycleEvent,
                     interactionKind: payload.interactionKind,
+                    interactionPromptID: payload.interactionPromptID,
                     confidence: payload.confidence,
                     sessionID: payload.sessionID,
                     parentSessionID: payload.parentSessionID,
@@ -682,7 +702,7 @@ extension WorklaneStore {
                 auxiliaryState.raw.wantsReadyStatus = false
                 auxiliaryState.raw.showsReadyStatus = false
                 worklane.auxiliaryStateByPaneID[payload.paneID] = auxiliaryState
-                cancelPendingReadyStatus(for: PaneReference(worklaneID: worklane.id, paneID: payload.paneID))
+                cancelPendingReadyStatus(for: payload.paneID)
                 recomputePresentation(for: payload.paneID, in: &worklane)
                 worklanes[worklaneIndex] = worklane
                 let impacts = auxiliaryInvalidation(for: payload.paneID, previousWorklane: previousWorklane, nextWorklane: worklane)
@@ -703,6 +723,9 @@ extension WorklaneStore {
                     case .promptIdle:
                         auxiliaryState.terminalProgress = nil
                         auxiliaryState.agentStatus = nil
+                        // The sweep trusts the reducer, so a weak session left
+                        // here would write this status straight back.
+                        auxiliaryState.agentReducerState.clearWeakCodexSessions()
                         if existingStatus.tool == .codex {
                             auxiliaryState.raw.codexCurrentRunHasObservedActivity = false
                         }
@@ -988,7 +1011,7 @@ extension WorklaneStore {
         switch event {
         case .userInterrupted, .commandFinished, .userSubmittedInput, .progressReport:
             return true
-        case .shellReady, .desktopNotification, .userEditedInput, .surfaceClosed:
+        case .shellReady, .desktopNotification, .userEditedInput, .userPasteHold, .surfaceClosed:
             return false
         }
     }
@@ -1009,6 +1032,8 @@ extension WorklaneStore {
             return "userEditedInput"
         case .userSubmittedInput:
             return "userSubmittedInput"
+        case .userPasteHold(let hold):
+            return "userPasteHold:\(hold)"
         case .surfaceClosed:
             return "surfaceClosed"
         }
@@ -1273,11 +1298,15 @@ extension WorklaneStore {
     }
 
     func clearStaleAgentSessions() {
-        clearStaleAgentSessions(sweepContext: AgentSessionSweepContext(foregroundAgentResolver: foregroundAgentResolver))
+        // The sweep's fresh probes also replace the payload cache: a payload
+        // reconciling a probe older than the sweep's would undo what it saw.
+        clearStaleAgentSessions(sweepContext: foregroundAgentContext(forcingRefresh: true))
     }
 
-    /// Shared by every payload inside one agent turn. Without it each hook walked
-    /// the pane's entire process tree synchronously on the main actor.
+    /// Shared by every payload inside one agent turn and by the sweep. Without
+    /// it each hook walked the pane's entire process tree synchronously on the
+    /// main actor. There is one current context and each caches a pane's probe
+    /// once, so a pane never reconciles a probe older than the last it used.
     func foregroundAgentContext(forcingRefresh: Bool = false) -> AgentSessionSweepContext {
         let now = currentDateProvider()
         if !forcingRefresh, let cached = cachedForegroundAgentContext,

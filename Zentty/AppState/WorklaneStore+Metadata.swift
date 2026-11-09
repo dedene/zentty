@@ -5,8 +5,6 @@ private let stopSignalLogger = Logger(subsystem: "be.zenjoy.zentty", category: "
 private let codexRestartLogger = Logger(subsystem: "be.zenjoy.zentty", category: "CodexRestart")
 
 extension WorklaneStore {
-    // Suppress stale title ticks briefly after a ready-title-forced idle transition.
-    private static let codexTitleIdleSuppressionWindow: TimeInterval = 1
     private static let codexReadyNotificationRecoveryWindow: TimeInterval = 10
     private static let codexQuestionRetryDelayNanoseconds: [UInt64] = [
         0,
@@ -274,10 +272,6 @@ extension WorklaneStore {
 
     func clearPaneState(for paneID: PaneID, in worklane: inout WorklaneState) {
         worklane.auxiliaryStateByPaneID.removeValue(forKey: paneID)
-    }
-
-    func clearStatusDerivedState(for paneID: PaneID, in worklane: inout WorklaneState) {
-        worklane.auxiliaryStateByPaneID[paneID]?.agentStatus = nil
     }
 
     func clearBranchDerivedState(for paneID: PaneID, in worklane: inout WorklaneState) {
@@ -760,7 +754,11 @@ extension WorklaneStore {
         stopSignalLogger.debug(
             "metadata.claudeSpinnerResume pane=\(paneID.rawValue, privacy: .public) title=\(metadata.title ?? "<nil>", privacy: .public)"
         )
-        clearClaudeHookInteractionContext(sessionID: existingStatus.sessionID, promptText: existingStatus.text)
+        clearClaudeHookInteractionContext(
+            sessionID: existingStatus.sessionID,
+            promptText: existingStatus.text,
+            promptID: existingStatus.interactionPromptID
+        )
     }
 
     /// The hook bridge keeps the open prompt in its session store so a sibling
@@ -771,15 +769,15 @@ extension WorklaneStore {
     ///
     /// Only the prompt this pane was showing is cleared: the spinner title can
     /// land after the bridge has already stored the *next* PermissionRequest,
-    /// and that one must survive.
-    private func clearClaudeHookInteractionContext(sessionID: String?, promptText: String?) {
+    /// and that one must survive, even when it reads the same.
+    private func clearClaudeHookInteractionContext(sessionID: String?, promptText: String?, promptID: String?) {
         guard let sessionID, !sessionID.isEmpty,
               let sessionStore = claudeHookSessionStoreProvider()
         else {
             return
         }
         do {
-            try sessionStore.clearInteractionContext(sessionID: sessionID, ifTextMatches: promptText)
+            try sessionStore.clearInteractionContext(sessionID: sessionID, ifTextMatches: promptText, shownPromptID: promptID)
         } catch {
             stopSignalLogger.error(
                 "metadata.claudeSpinnerResume clearInteractionContext failed session=\(sessionID, privacy: .public) error=\(String(describing: error), privacy: .public)"
@@ -843,9 +841,6 @@ extension WorklaneStore {
         auxiliaryState.agentStatus = AgentStatusReconciliation.hydratedStatus(
             auxiliaryState.agentReducerState.reducedStatus(now: now),
             existingStatus: existingStatus
-        )
-        auxiliaryState.raw.codexTitleIdleSuppressionUntil = Date().addingTimeInterval(
-            PaneAgentReducerState.stopGraceWindow + Self.codexTitleIdleSuppressionWindow
         )
         worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
         scheduleAgentStatusSweep(
@@ -1063,11 +1058,17 @@ extension WorklaneStore {
         // (.running, .needsInput) but the raw agentStatus hasn't recorded
         // that it was ever running, propagate the observation. This closes
         // the gap for agents like Copilot where "running" is derived from
-        // OSC progress at the presentation layer, not from hook events.
+        // OSC progress at the presentation layer, not from hook events. The
+        // reducer session gets it too: the sweep rewrites agentStatus from the
+        // reducer, and an explicit idle drops a session that never ran.
         if presentation.isWorking,
-           worklane.auxiliaryStateByPaneID[paneID]?.agentStatus != nil,
-           worklane.auxiliaryStateByPaneID[paneID]?.agentStatus?.hasObservedRunning == false {
+           let status = worklane.auxiliaryStateByPaneID[paneID]?.agentStatus,
+           status.hasObservedRunning == false {
             worklane.auxiliaryStateByPaneID[paneID]?.agentStatus?.hasObservedRunning = true
+            if let sessionID = status.sessionID {
+                worklane.auxiliaryStateByPaneID[paneID]?.agentReducerState
+                    .sessionsByID[sessionID]?.hasObservedRunning = true
+            }
         }
 
         // Bridge: when the presentation phase transitions from actively
@@ -1079,7 +1080,9 @@ extension WorklaneStore {
         if previousPresentation?.isWorking == true,
            presentation.runtimePhase == .idle,
            worklane.auxiliaryStateByPaneID[paneID]?.agentStatus != nil,
-           !codexTitleIdleSuppressionIsActive(raw) {
+           !codexTitleIdleSuppressionIsActive(raw),
+           worklane.auxiliaryStateByPaneID[paneID]?.agentReducerState
+               .presentedSessionIsInterrupted(now: currentDateProvider()) != true {
             let bridgePrevPhase = previousPresentation?.runtimePhase.rawValue ?? "<nil>"
             let bridgeTool = worklane.auxiliaryStateByPaneID[paneID]?.agentStatus?.tool.displayName ?? "<nil>"
             stopSignalLogger.debug(
@@ -1149,9 +1152,16 @@ extension WorklaneStore {
 
         waitingPaneReferencesByPath[workingDirectory, default: []].insert(paneReference)
         guard pendingGitContextPaths.insert(workingDirectory).inserted else {
+            if forceReload {
+                reloadRequestedGitContextPaths.insert(workingDirectory)
+            }
             return
         }
 
+        startGitContextResolve(for: workingDirectory)
+    }
+
+    private func startGitContextResolve(for workingDirectory: String) {
         let resolver = gitContextResolver
         Task { [weak self] in
             let gitContext = await resolver.resolve(for: workingDirectory)
@@ -1168,6 +1178,12 @@ extension WorklaneStore {
         _ gitContext: PaneGitContext?,
         forWorkingDirectory workingDirectory: String
     ) {
+        // Waiters and pending state stay put for the rerun.
+        if reloadRequestedGitContextPaths.remove(workingDirectory) != nil {
+            startGitContextResolve(for: workingDirectory)
+            return
+        }
+
         pendingGitContextPaths.remove(workingDirectory)
         let paneReferences = waitingPaneReferencesByPath.removeValue(forKey: workingDirectory) ?? []
 

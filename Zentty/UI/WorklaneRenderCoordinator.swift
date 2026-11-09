@@ -90,6 +90,10 @@ final class WorklaneRenderCoordinator {
     private var reviewPollingTarget: (worklaneID: WorklaneID, paneID: PaneID, repoRoot: String, branch: String)?
     private var hasBootstrappedReviewState = false
     private var needsRuntimeSynchronization = true
+    /// A canvas render hit the drag gate and nothing has rendered since. The
+    /// strip only re-renders its cached state when the drag ends, so without
+    /// this the skipped store change stays invisible until an unrelated render.
+    private var canvasRenderDeferredByDrag = false
     private var worklaneStoreSubscription: WorklaneChangeSubscription?
     private let reviewPollingScheduler: ReviewPollingScheduler
     private var previousActiveWorklaneID: WorklaneID?
@@ -162,6 +166,15 @@ final class WorklaneRenderCoordinator {
 
     func render(animated: Bool = false) {
         renderCurrentWorklane(animated: animated)
+    }
+
+    /// Catches the canvas up with store changes the drag held back. Goes
+    /// through `renderCurrentWorklane` for its notification-suppression scope.
+    func flushCanvasRenderDeferredByDrag() {
+        guard canvasRenderDeferredByDrag else {
+            return
+        }
+        renderCurrentWorklane(animated: false)
     }
 
     func renderCanvas(
@@ -397,8 +410,10 @@ final class WorklaneRenderCoordinator {
 
             guard !views.appCanvasView.paneStripView.isDragActive
                   || views.appCanvasView.paneStripView.isDropSettling else {
+                canvasRenderDeferredByDrag = true
                 return
             }
+            canvasRenderDeferredByDrag = false
 
             let sidebarWidth = environment?.renderSidebarWidth ?? SidebarWidthPreference.defaultWidth
             let effectiveInset = leadingVisibleInsetOverride

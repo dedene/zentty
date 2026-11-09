@@ -61,6 +61,10 @@ protocol LibghosttySurfaceControlling: AnyObject {
     /// Pastes text as if it came from the clipboard. Unlike `sendText`, this applies paste
     /// protection, so text from outside the terminal (such as a drop) can't run commands unasked.
     func pasteText(_ text: String)
+    /// Runs `start`, which begins a user paste, and calls `delivered` once the text has reached
+    /// the terminal. A paste held for confirmation reports after the user allows it, and never if
+    /// they refuse. `start` returns whether a paste actually began.
+    func trackUserPaste(start: () -> Bool, delivered: @escaping @MainActor () -> Void)
     /// Hands the in-progress IME composition to the terminal so it renders inline at the caret.
     /// Passing an empty string clears it.
     func setPreedit(_ text: String)
@@ -70,6 +74,7 @@ protocol LibghosttySurfaceControlling: AnyObject {
     func cancelPromptInput()
     func submitReturn()
     func performBindingAction(_ action: String) -> Bool
+    func discardQueuedSearchEvents()
     func scroll(toOffset offset: Double)
     func hasSelection() -> Bool
     func close()
@@ -82,9 +87,15 @@ extension LibghosttySurfaceControlling {
     var mouseCaptured: Bool { false }
     var mouseScrollIsTerminalInput: Bool { mouseCaptured }
     func pasteText(_ text: String) {}
+    func trackUserPaste(start: () -> Bool, delivered: @escaping @MainActor () -> Void) {
+        if start() {
+            delivered()
+        }
+    }
     func setPreedit(_ text: String) {}
     func imeRect() -> CGRect? { nil }
     func cancelPromptInput() {}
+    func discardQueuedSearchEvents() {}
     func translatedKeyEvent(for event: NSEvent) -> NSEvent { event }
     func setSmoothScrollingEnabled(_ enabled: Bool) {}
     func scroll(toOffset offset: Double) {
@@ -113,6 +124,7 @@ final class LibghosttyAdapter: TerminalAdapter, TerminalSearchControlling, Termi
     private var lastSurfaceActivity = TerminalSurfaceActivity(isVisible: false, isFocused: false)
     private var hasAppliedSurfaceActivity = false
     private var inheritedConfigTemplate: ghostty_surface_config_s?
+    private var hasRequestedClose = false
 
     var hasScrollback: Bool { surfaceController?.hasScrollback ?? false }
     var needsConfirmQuit: Bool { surfaceController?.needsConfirmQuit ?? false }
@@ -144,6 +156,7 @@ final class LibghosttyAdapter: TerminalAdapter, TerminalSearchControlling, Termi
             return
         }
 
+        hasRequestedClose = false
         try ZenttyPerformanceSignposts.interval("LibghosttyAdapterStartSession") {
             let surfaceController = try runtime.makeSurface(
                 for: hostView,
@@ -154,7 +167,12 @@ final class LibghosttyAdapter: TerminalAdapter, TerminalSearchControlling, Termi
                     self?.metadataDidChange?(metadata)
                 },
                 eventDidOccur: { [weak self] event in
-                    self?.eventDidOccur?(event)
+                    guard let self else { return }
+                    // A close we asked for is not the shell exiting.
+                    if event == .surfaceClosed, self.hasRequestedClose {
+                        return
+                    }
+                    self.eventDidOccur?(event)
                 }
             )
 
@@ -169,6 +187,7 @@ final class LibghosttyAdapter: TerminalAdapter, TerminalSearchControlling, Termi
     }
 
     func close() {
+        hasRequestedClose = true
         surfaceController?.close()
         surfaceController = nil
     }
@@ -243,7 +262,7 @@ final class LibghosttyAdapter: TerminalAdapter, TerminalSearchControlling, Termi
             hasAppliedSurfaceActivity = true
 
             if isFirstApplication || previouslyAppliedActivity.isFocused != activity.isFocused {
-                surfaceController.setFocused(activity.isFocused)
+                surfaceController.setFocused(activity.isFocused && responderAllowsFocus)
             }
 
             if isFirstApplication || previouslyAppliedActivity.isVisible != activity.isVisible {
@@ -256,6 +275,16 @@ final class LibghosttyAdapter: TerminalAdapter, TerminalSearchControlling, Termi
                 surfaceController.refresh()
             }
         }
+    }
+
+    /// Model focus alone must not focus the surface while keys go elsewhere, such
+    /// as the search field. becomeFirstResponder reports the surface focused itself.
+    private var responderAllowsFocus: Bool {
+        guard let window = hostView.window else {
+            return true
+        }
+
+        return window.firstResponder === hostView
     }
 
     func showSearch() {
@@ -279,7 +308,10 @@ final class LibghosttyAdapter: TerminalAdapter, TerminalSearchControlling, Termi
     }
 
     func endSearch() {
+        // end_search queues its own .ended for a later drain. By then a new search
+        // may own this pane, and that .ended would clear it.
         _ = surfaceController?.performBindingAction("end_search")
+        surfaceController?.discardQueuedSearchEvents()
     }
 }
 
@@ -298,7 +330,7 @@ extension LibghosttyAdapter: TerminalSessionInheritanceConfiguring {
                 for: context.libghosttyValue
             )
         else {
-            inheritedConfigTemplate = nil
+            // The source pane may be gone by now; keep what it already gave us.
             return
         }
 

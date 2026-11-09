@@ -4,6 +4,9 @@ import os
 
 private let shortcutsLogger = Logger(subsystem: "be.zenjoy.zentty", category: "ShortcutsSettings")
 
+/// The conflict Reassign was offered for no longer matches the config it would save over.
+private struct ReassignConflictChanged: Error {}
+
 @MainActor
 final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionViewController, SettingsAppearanceUpdating {
     private enum Layout {
@@ -169,6 +172,10 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
         super.viewDidDisappear()
         removeKeyMonitor()
         removeKeyboardInputSourceObserver()
+        if recordingCommandID != nil {
+            cancelRecording()
+            refreshVisibleState()
+        }
     }
 
     override func prepareForPresentation() {
@@ -351,6 +358,17 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
         ))
     }
 
+    var isRecordingForTesting: Bool {
+        recordingCommandID != nil
+    }
+
+    func handleRecordingKeyDownForTesting(_ event: NSEvent) {
+        guard let recordingCommandID else {
+            return
+        }
+        _ = handleRecordingKeyDown(event, commandID: recordingCommandID)
+    }
+
     func updateRecordingPreviewModifiersForTesting(_ modifiers: Set<KeyboardModifier>) {
         guard let selectedCommandID else {
             return
@@ -416,10 +434,25 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
     func apply(shortcuts: AppConfig.Shortcuts) {
         currentShortcuts = shortcuts.normalized()
         shortcutManager = ShortcutManager(shortcuts: currentShortcuts)
+        revalidateConflicts()
         rebuildBrowserItems(preserveSelection: true)
         browserTableView.reloadData()
         syncSelectionToTableView()
         refreshDetailPane()
+    }
+
+    /// A conflict names the command that held the pending shortcut when it was
+    /// raised. Once the config changes that holder can be stale, and Reassign
+    /// would overwrite a binding that no longer conflicts.
+    private func revalidateConflicts() {
+        for (commandID, issue) in issueByCommandID {
+            guard case let .conflict(_, pending) = issue else {
+                continue
+            }
+            issueByCommandID[commandID] = shortcutManager
+                .conflict(for: pending, assigningTo: commandID)
+                .map { .conflict($0.commandID, pending: pending) }
+        }
     }
 
     private func configureSearchField() {
@@ -1043,47 +1076,62 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
                 return event
             }
 
-            switch event.keyCode {
-            case UInt16(kVK_Escape):
-                self.issueByCommandID[recordingCommandID] = nil
-                self.recordingCommandID = nil
-                self.clearRecordingPreview()
-                self.refreshVisibleState()
-                return nil
-            case UInt16(kVK_Delete), UInt16(kVK_ForwardDelete):
-                // Bare Delete/Forward-Delete clears the binding; with modifiers it records.
-                let combinedModifiers = KeyboardModifier.from(flags: event.modifierFlags)
-                    .union(self.recordingClickedModifiers)
-                if combinedModifiers.isEmpty {
-                    self.clearShortcut(for: recordingCommandID)
-                } else if let shortcut = KeyboardShortcut(event: event) {
-                    let combinedShortcut = KeyboardShortcut(
-                        key: shortcut.key,
-                        modifiers: shortcut.modifiers.union(self.recordingClickedModifiers)
-                    )
-                    self.recordingPreviewKey = combinedShortcut.key
-                    self.commit(
-                        shortcut: combinedShortcut,
-                        for: recordingCommandID
-                    )
-                }
-                return nil
-            default:
-                break
-            }
+            return self.handleRecordingKeyDown(event, commandID: recordingCommandID)
+        }
+    }
 
-            guard let shortcut = KeyboardShortcut(event: event) else {
-                return nil
+    private func handleRecordingKeyDown(
+        _ event: NSEvent,
+        commandID: AppCommandID
+    ) -> NSEvent? {
+        switch event.keyCode {
+        case UInt16(kVK_Escape):
+            issueByCommandID[commandID] = nil
+            recordingCommandID = nil
+            clearRecordingPreview()
+            refreshVisibleState()
+            return nil
+        case UInt16(kVK_Delete), UInt16(kVK_ForwardDelete):
+            // Bare Delete/Forward-Delete clears the binding; with modifiers it records.
+            let combinedModifiers = KeyboardModifier.from(flags: event.modifierFlags)
+                .union(recordingClickedModifiers)
+            if combinedModifiers.isEmpty {
+                clearShortcut(for: commandID)
+            } else if let shortcut = KeyboardShortcut(event: event) {
+                let combinedShortcut = KeyboardShortcut(
+                    key: shortcut.key,
+                    modifiers: shortcut.modifiers.union(recordingClickedModifiers)
+                )
+                recordingPreviewKey = physicalPreviewKey(for: combinedShortcut)
+                commit(
+                    shortcut: combinedShortcut,
+                    for: commandID
+                )
             }
+            return nil
+        default:
+            break
+        }
 
-            let combinedShortcut = KeyboardShortcut(
-                key: shortcut.key,
-                modifiers: shortcut.modifiers.union(self.recordingPreviewModifiers)
-            )
-            self.recordingPreviewKey = combinedShortcut.key
-            self.commit(shortcut: combinedShortcut, for: recordingCommandID)
+        guard let shortcut = KeyboardShortcut(event: event) else {
             return nil
         }
+
+        let combinedShortcut = KeyboardShortcut(
+            key: shortcut.key,
+            modifiers: shortcut.modifiers.union(recordingPreviewModifiers)
+        )
+        recordingPreviewKey = physicalPreviewKey(for: combinedShortcut)
+        commit(shortcut: combinedShortcut, for: commandID)
+        return nil
+    }
+
+    /// A typed key that `commit` is about to reject must not stay pending: the
+    /// modifier that starts the user's next chord would commit it with that key.
+    /// Clicked keys do stay pending, because clicking a key and then a modifier
+    /// is how the keyboard diagram composes a shortcut.
+    private func physicalPreviewKey(for shortcut: KeyboardShortcut) -> KeyboardShortcutKey? {
+        shortcut.isEligibleCommandBinding ? shortcut.key : nil
     }
 
     private func removeKeyMonitor() {
@@ -1326,21 +1374,29 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
             return
         }
 
-        let replacement = replacementShortcutForConflictingCommand(
-            conflictingCommandID,
-            losing: pending,
-            to: selectedCommandID
-        )
-
         recordingCommandID = nil
         clearRecordingPreview()
         do {
             try configStore.update { config in
+                // `update` has just reloaded the file. Only what it holds may be changed: the
+                // conflict on screen comes from an older read.
+                let manager = ShortcutManager(shortcuts: config.shortcuts)
+                guard manager.conflict(for: pending, assigningTo: selectedCommandID)?.commandID == conflictingCommandID else {
+                    throw ReassignConflictChanged()
+                }
+                let replacement = replacementShortcutForConflictingCommand(
+                    conflictingCommandID,
+                    losing: pending,
+                    to: selectedCommandID,
+                    in: manager
+                )
                 config.shortcuts = config.shortcuts
                     .updating(commandID: conflictingCommandID, shortcut: replacement)
                     .updating(commandID: selectedCommandID, shortcut: pending)
             }
             issueByCommandID[selectedCommandID] = nil
+        } catch is ReassignConflictChanged {
+            // Nothing saved; `apply` below shows the conflict as it stands now.
         } catch {
             shortcutsLogger.error(
                 "Failed to reassign \(String(describing: pending)) from \(conflictingCommandID.rawValue) to \(selectedCommandID.rawValue): \(error.localizedDescription)"
@@ -1359,13 +1415,14 @@ final class ShortcutsSettingsSectionViewController: SettingsScrollableSectionVie
     private func replacementShortcutForConflictingCommand(
         _ conflictingCommandID: AppCommandID,
         losing pending: KeyboardShortcut,
-        to newOwner: AppCommandID
+        to newOwner: AppCommandID,
+        in manager: ShortcutManager
     ) -> KeyboardShortcut? {
         guard let defaultShortcut = AppCommandRegistry.definition(for: conflictingCommandID).defaultShortcut,
               defaultShortcut != pending else {
             return nil
         }
-        if let holder = shortcutManager.conflict(for: defaultShortcut, assigningTo: conflictingCommandID),
+        if let holder = manager.conflict(for: defaultShortcut, assigningTo: conflictingCommandID),
            holder.commandID != newOwner {
             return nil
         }

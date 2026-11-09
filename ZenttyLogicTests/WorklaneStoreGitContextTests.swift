@@ -623,6 +623,63 @@ final class WorklaneStoreGitContextTests: XCTestCase {
         XCTAssertEqual(presentation.lookupBranch, "fix/nimbu-acl-cloud-code")
     }
 
+    func test_force_reload_during_inflight_git_resolve_reruns_and_applies_fresh_context() async throws {
+        let projectPath = "/tmp/project"
+        let resolver = GatedPaneGitContextResolver(results: [
+            PaneGitContext(workingDirectory: projectPath, repositoryRoot: projectPath, reference: .branch("old")),
+            PaneGitContext(workingDirectory: projectPath, repositoryRoot: projectPath, reference: .branch("new")),
+        ])
+        let worklaneID = WorklaneID("worklane-main")
+        let paneID = PaneID("pane-a")
+        let otherPaneID = PaneID("pane-b")
+        let store = WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: worklaneID,
+                    title: nil,
+                    paneStripState: PaneStripState(
+                        panes: [PaneState(id: paneID, title: "a"), PaneState(id: otherPaneID, title: "b")],
+                        focusedPaneID: paneID
+                    )
+                ),
+            ],
+            gitContextResolver: resolver
+        )
+        let metadata = TerminalMetadata(title: "zsh", currentWorkingDirectory: projectPath, processName: "zsh")
+
+        store.updateMetadata(paneID: paneID, metadata: metadata)
+        await resolver.waitForFirstResolveToStart()
+        // Joins the in-flight resolve as a second waiter.
+        store.updateMetadata(paneID: otherPaneID, metadata: metadata)
+
+        // Both land while the resolve that read the old HEAD is in flight.
+        let paneReference = WorklaneStore.PaneReference(worklaneID: worklaneID, paneID: paneID)
+        store.refreshGitContextIfNeeded(for: paneReference, forceReload: true)
+        store.refreshGitContextIfNeeded(for: paneReference, forceReload: true)
+
+        let branches = { [store] in
+            [paneID, otherPaneID].map { store.activeWorklane?.auxiliaryStateByPaneID[$0]?.presentation.branch }
+        }
+        let updated = expectation(description: "both waiters see the fresh branch")
+        updated.assertForOverFulfill = false
+        let subscription = store.subscribe { change in
+            guard case .auxiliaryStateUpdated = change, branches() == ["new", "new"] else {
+                return
+            }
+            updated.fulfill()
+        }
+        defer { store.unsubscribe(subscription) }
+
+        await resolver.releaseFirstResolve()
+        await fulfillment(of: [updated], timeout: 1.0)
+
+        let resolveCount = await resolver.resolveCallCount()
+        XCTAssertEqual(resolveCount, 2)
+        XCTAssertEqual(branches(), ["new", "new"])
+        XCTAssertEqual(store.cachedGitContextByPath[projectPath]?.branchName, "new")
+        XCTAssertFalse(store.pendingGitContextPaths.contains(projectPath))
+    }
+
     private func waitForBranch(
         _ branch: String,
         paneID: PaneID,
@@ -667,6 +724,52 @@ private struct StubPaneGitContextResolver: PaneGitContextResolving {
                 repositoryRoot: nil,
                 reference: nil
             )
+    }
+}
+
+/// Holds the first resolve open until the test releases it, so a force reload
+/// can land while a resolve is in flight. Later resolves return immediately.
+private actor GatedPaneGitContextResolver: PaneGitContextResolving {
+    private var remainingResults: [PaneGitContext]
+    private var callCount = 0
+    private var firstResolveHasStarted = false
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private var firstResolveGate: CheckedContinuation<Void, Never>?
+
+    init(results: [PaneGitContext]) {
+        remainingResults = results
+    }
+
+    func resolve(for workingDirectory: String) async -> PaneGitContext {
+        callCount += 1
+        let result = remainingResults.isEmpty
+            ? PaneGitContext(workingDirectory: workingDirectory, repositoryRoot: nil, reference: nil)
+            : remainingResults.removeFirst()
+        guard callCount == 1 else {
+            return result
+        }
+
+        firstResolveHasStarted = true
+        startWaiters.forEach { $0.resume() }
+        startWaiters.removeAll()
+        await withCheckedContinuation { firstResolveGate = $0 }
+        return result
+    }
+
+    func waitForFirstResolveToStart() async {
+        guard !firstResolveHasStarted else {
+            return
+        }
+        await withCheckedContinuation { startWaiters.append($0) }
+    }
+
+    func releaseFirstResolve() {
+        firstResolveGate?.resume()
+        firstResolveGate = nil
+    }
+
+    func resolveCallCount() -> Int {
+        callCount
     }
 }
 

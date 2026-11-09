@@ -15,6 +15,8 @@ struct PaneAgentSessionState: Equatable, Sendable {
     var source: PaneAgentStatusSource
     var origin: AgentSignalOrigin
     var interactionKind: PaneAgentInteractionKind
+    /// Identity of the stored prompt on screen. Meaningful only in `.needsInput`.
+    var interactionPromptID: String? = nil
     var confidence: AgentSignalConfidence
     var shellActivityState: PaneShellActivityState
     var trackedPID: Int32?
@@ -35,6 +37,11 @@ struct PaneAgentSessionState: Equatable, Sendable {
     /// `Notification("Claude is waiting for your input")` racing the Stop hook
     /// over the IPC bus.
     var explicitIdleSince: Date?
+    /// The title or OSC progress read this turn as interrupted. Outlives the
+    /// completion candidate so the idle it leads to stays an interrupt however
+    /// late the sweep runs; any accepted lifecycle update clears it, so a real
+    /// Stop or a resumed turn wins.
+    var interruptedTurn: Bool = false
 }
 
 struct PaneAgentReducerState: Equatable, Sendable {
@@ -359,6 +366,7 @@ struct PaneAgentReducerState: Equatable, Sendable {
         session.text = nil
         session.interactionKind = .none
         session.completionCandidateDeadline = now.addingTimeInterval(Self.stopGraceWindow)
+        session.interruptedTurn = true
         session.idleVisibleUntil = nil
         session.unresolvedStopVisibleUntil = nil
         session.hasObservedRunning = true
@@ -377,6 +385,18 @@ struct PaneAgentReducerState: Equatable, Sendable {
         guard let subagents = session.subagents, !subagents.isEmpty else { return false }
         let refreshedAt = session.subagentsRefreshedAt ?? session.updatedAt
         return now.timeIntervalSince(refreshedAt) < AgentSubagentRegistryStore.transcriptQuietWindow
+    }
+
+    /// Whether the pane's presented session is idle because the user cut its
+    /// turn short, in which case its idle is no "Agent ready".
+    func presentedSessionIsInterrupted(now: Date = Date()) -> Bool {
+        guard let status = reducedStatus(now: now),
+              status.state == .idle,
+              let sessionID = status.sessionID
+        else {
+            return false
+        }
+        return sessionsByID[sessionID]?.interruptedTurn == true
     }
 
     func reducedStatus(now: Date = Date()) -> PaneAgentStatus? {
@@ -419,6 +439,7 @@ struct PaneAgentReducerState: Equatable, Sendable {
             source: session.source,
             origin: session.origin,
             interactionKind: session.interactionKind,
+            interactionPromptID: session.state == .needsInput ? session.interactionPromptID : nil,
             confidence: session.confidence,
             shellActivityState: session.shellActivityState,
             trackedPID: session.trackedPID,
@@ -481,6 +502,7 @@ struct PaneAgentReducerState: Equatable, Sendable {
             explicitIdleSince: nil
         )
 
+        let sessionsBeforeMerge = sessionsByID
         if payload.origin != .inferred {
             mergeInferredSessions(into: &session, for: tool, excluding: sessionID)
         }
@@ -489,6 +511,17 @@ struct PaneAgentReducerState: Equatable, Sendable {
         }
 
         if !shouldApplyLifecycle(payload, over: session, now: now) {
+            // The merged result is dropped, so its sources must stay.
+            sessionsByID = sessionsBeforeMerge
+            return
+        }
+
+        // The dialog is still up: keep the attention signal and take only the
+        // news. `updatedAt` stays too, it dates the prompt the pane is showing.
+        if payload.lifecycleEvent == .backgroundActivity,
+           session.state == .needsInput || session.interactionKind.requiresHumanAttention {
+            mergeTaskAndSubagentData(from: payload, into: &session, now: now)
+            sessionsByID[sessionID] = session
             return
         }
 
@@ -507,16 +540,10 @@ struct PaneAgentReducerState: Equatable, Sendable {
         session.confidence = payload.confidence ?? defaultConfidence(for: payload.origin)
         session.artifactLink = explicitArtifactLink(from: payload) ?? session.artifactLink
         session.updatedAt = now
+        session.interruptedTurn = false
         session.idleVisibleUntil = nil
         session.unresolvedStopVisibleUntil = nil
-        if let incomingTaskProgress = payload.taskProgress {
-            session.taskProgress = session.taskProgress?.mergingCountsOnlyUpdate(incomingTaskProgress)
-                ?? incomingTaskProgress
-        }
-        if let subagents = payload.subagents {
-            session.subagents = subagents
-            session.subagentsRefreshedAt = now
-        }
+        mergeTaskAndSubagentData(from: payload, into: &session, now: now)
 
         if payload.lifecycleEvent == .stopCandidate {
             session.state = .running
@@ -542,6 +569,10 @@ struct PaneAgentReducerState: Equatable, Sendable {
 
         session.state = state
         session.interactionKind = state == .needsInput ? interactionKind : .none
+        // A weaker needsInput refresh keeps naming the prompt still on screen.
+        session.interactionPromptID = state == .needsInput
+            ? payload.interactionPromptID ?? (previousState == .needsInput ? session.interactionPromptID : nil)
+            : nil
         switch state {
         case .needsInput:
             if previousState == .needsInput {
@@ -600,6 +631,21 @@ struct PaneAgentReducerState: Equatable, Sendable {
         stopSignalLogger.debug(
             "reducer.lifecycle applied session=\(sessionID, privacy: .public) tool=\(tool.displayName, privacy: .public) prev=\(previousState.rawValue, privacy: .public) => \(session.state.rawValue, privacy: .public) origin=\(payload.origin.rawValue, privacy: .public) interaction=\(session.interactionKind.rawValue, privacy: .public) hasObservedRunning=\(session.hasObservedRunning, privacy: .public)"
         )
+    }
+
+    private func mergeTaskAndSubagentData(
+        from payload: AgentStatusPayload,
+        into session: inout PaneAgentSessionState,
+        now: Date
+    ) {
+        if let incomingTaskProgress = payload.taskProgress {
+            session.taskProgress = session.taskProgress?.mergingCountsOnlyUpdate(incomingTaskProgress)
+                ?? incomingTaskProgress
+        }
+        if let subagents = payload.subagents {
+            session.subagents = subagents
+            session.subagentsRefreshedAt = now
+        }
     }
 
     private mutating func mergeInferredSessions(
@@ -703,6 +749,7 @@ struct PaneAgentReducerState: Equatable, Sendable {
 
             if session.state == .idle || session.state == .unresolvedStop {
                 session.state = .starting
+                session.interruptedTurn = false
             }
             session.tool = tool
             session.origin = maxOrigin(session.origin, payload.origin)

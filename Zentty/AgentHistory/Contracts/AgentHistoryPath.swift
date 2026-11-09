@@ -152,11 +152,19 @@ struct AgentHistoryExclusionMatcher: Equatable, Sendable {
 struct AgentHistoryAdmission: Sendable {
     let exclusions: AgentHistoryExclusionMatcher
     let tombstones: Set<AgentHistorySessionKey>
+    /// False only for `.admitAll`, what an indexer holds until it has read its tombstones.
+    var hasReadTombstones = true
 
     static let admitAll = AgentHistoryAdmission(
         exclusions: AgentHistoryExclusionMatcher(folders: []),
-        tombstones: []
+        tombstones: [],
+        hasReadTombstones: false
     )
+
+    /// What a snapshot may say about removals.
+    var removals: AgentHistoryRemovals {
+        hasReadTombstones ? .known(tombstones) : .unknown
+    }
 
     /// `nativeID` must be normalized. A nil `cwd` is admitted unless tombstoned.
     func decide(agent: AgentHistoryAgent, nativeID: String, cwd: String?) -> AgentHistoryAdmissionDecision {

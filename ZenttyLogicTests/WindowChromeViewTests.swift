@@ -1594,6 +1594,48 @@ final class WindowChromeViewTests: AppKitTestCase {
         XCTAssertFalse(view.isFocusedProxyIconHidden)
     }
 
+    func test_stale_project_icon_crossfade_keeps_newer_icon() throws {
+        let view = WindowChromeView(
+            frame: NSRect(x: 0, y: 0, width: 520, height: WindowChromeView.preferredHeight)
+        )
+        view.render(summary: proxyIconSummary(cwdPath: "/tmp/stale-crossfade-a-\(UUID().uuidString)"))
+        let staleToken = view.beginFocusedProxyIconPendingResolveForTesting()
+
+        let newerPath = "/tmp/stale-crossfade-b-\(UUID().uuidString)"
+        view.render(summary: proxyIconSummary(cwdPath: newerPath))
+        let newerIcon = try XCTUnwrap(view.focusedProxyIconImage)
+
+        view.finishFocusedProxyIconCrossfadeFadeOutForTesting(to: NSImage(size: NSSize(width: 8, height: 8)), token: staleToken)
+
+        XCTAssertTrue(view.focusedProxyIconImage === newerIcon)
+        XCTAssertEqual(view.focusedProxyIconImageAlphaValueForTesting, 1)
+        XCTAssertEqual(view.focusedProxyIconCwdPath, newerPath)
+    }
+
+    func test_current_project_icon_crossfade_installs_resolved_icon() throws {
+        let view = WindowChromeView(
+            frame: NSRect(x: 0, y: 0, width: 520, height: WindowChromeView.preferredHeight)
+        )
+        view.render(summary: proxyIconSummary(cwdPath: "/tmp/current-crossfade-\(UUID().uuidString)"))
+        let token = view.beginFocusedProxyIconPendingResolveForTesting()
+        let resolvedIcon = NSImage(size: NSSize(width: 8, height: 8))
+
+        view.finishFocusedProxyIconCrossfadeFadeOutForTesting(to: resolvedIcon, token: token)
+
+        XCTAssertTrue(view.focusedProxyIconImage === resolvedIcon)
+    }
+
+    private func proxyIconSummary(cwdPath: String) -> WorklaneChromeSummary {
+        WorklaneChromeSummary(
+            focusedLabel: "Project",
+            cwdPath: cwdPath,
+            branch: nil,
+            branchURL: nil,
+            pullRequest: nil,
+            reviewChips: []
+        )
+    }
+
     func test_review_staleness_recheck_delay_returns_time_until_threshold_with_buffer() throws {
         let now = Date(timeIntervalSince1970: 1_000)
         let fetchedAt = now.addingTimeInterval(-30)

@@ -1,0 +1,26 @@
+{"t": 0.0, "title": "✳ Claude Code"}
+{"hook": {"cwd": "$REPO", "hook_event_name": "SessionStart", "model": "claude-haiku-5-5", "session_id": "session-1", "source": "startup", "transcript_path": "$SESSION.jsonl"}, "t": 0.06}
+{"hook": {"cwd": "$REPO", "hook_event_name": "UserPromptSubmit", "permission_mode": "default", "prompt": "For an integration hook regression test: 1) use the Agent tool exactly once, with subagent_type Explore and run_in_background true, and give it this exact task: \"Read README.md with the Read tool, then list the files in the current directory, then reply done.\" 2) As soon as the Agent call returns, create a file named ZENTTY_AGENT_BENCH_APPROVAL_OK in the current directory using the Write tool with the text ZENTTY_AGENT_BENCH_APPROVAL_OK. 3) Then reply with exactly DONE.", "session_id": "session-1", "transcript_path": "$SESSION.jsonl"}, "t": 0.12}
+{"t": 0.12, "title": "◐ Claude Code"}
+{"t": 1.03, "title": "◑ Claude Code"}
+{"t": 1.19, "title": "◑ Integration hook regression test"}
+{"hook": {"agent_id": "agent-1", "agent_type": "Explore", "cwd": "$REPO", "hook_event_name": "SubagentStart", "session_id": "session-1", "transcript_path": "$SESSION.jsonl"}, "t": 1.49}
+{"hook": {"cwd": "$REPO", "hook_event_name": "PostToolUse", "permission_mode": "default", "session_id": "session-1", "tool_input": {"description": "Read README and list files", "subagent_type": "Explore"}, "tool_name": "Agent", "tool_response": {"status": "async_launched"}, "tool_use_id": "tool-1", "transcript_path": "$SESSION.jsonl"}, "t": 1.49}
+{"t": 1.99, "title": "◐ Integration hook regression test"}
+{"t": 2.95, "title": "◑ Integration hook regression test"}
+{"hook": {"agent_id": "agent-1", "agent_type": "Explore", "cwd": "$REPO", "hook_event_name": "PostToolUse", "permission_mode": "default", "session_id": "session-1", "tool_input": {"file_path": "$REPO/README.md"}, "tool_name": "Read", "tool_response": {"type": "text"}, "tool_use_id": "tool-2", "transcript_path": "$SESSION.jsonl"}, "t": 3.33}
+{"hook": {"agent_id": "agent-1", "agent_type": "Explore", "cwd": "$REPO", "hook_event_name": "PreToolUse", "permission_mode": "default", "session_id": "session-1", "tool_input": {"command": "ls -la $REPO", "description": "List files in the working directory"}, "tool_name": "Bash", "tool_use_id": "tool-3", "transcript_path": "$SESSION.jsonl"}, "t": 3.83}
+{"t": 3.91, "title": "◐ Integration hook regression test"}
+{"hook": {"cwd": "$REPO", "hook_event_name": "PreToolUse", "permission_mode": "default", "session_id": "session-1", "tool_input": {"file_path": "$SCRATCH/ZENTTY_AGENT_BENCH_APPROVAL_OK"}, "tool_name": "Write", "tool_use_id": "tool-4", "transcript_path": "$SESSION.jsonl"}, "t": 3.97}
+{"t": 3.98, "title": "✳ Integration hook regression test"}
+{"hook": {"cwd": "$REPO", "hook_event_name": "PermissionRequest", "permission_mode": "default", "session_id": "session-1", "tool_input": {"file_path": "$SCRATCH/ZENTTY_AGENT_BENCH_APPROVAL_OK"}, "tool_name": "Write", "transcript_path": "$SESSION.jsonl"}, "t": 3.99}
+{"hook": {"agent_id": "agent-1", "agent_type": "Explore", "cwd": "$REPO", "hook_event_name": "PostToolUse", "permission_mode": "default", "session_id": "session-1", "tool_input": {"command": "ls -la $REPO", "description": "List files in the working directory"}, "tool_name": "Bash", "tool_response": {}, "tool_use_id": "tool-3", "transcript_path": "$SESSION.jsonl"}, "t": 4.17}
+{"hook": {"agent_id": "agent-1", "agent_transcript_path": "$SESSION/subagents/agent-agent-1.jsonl", "agent_type": "Explore", "cwd": "$REPO", "hook_event_name": "SubagentStop", "permission_mode": "default", "session_id": "session-1", "transcript_path": "$SESSION.jsonl"}, "t": 6.79}
+{"hook": {"cwd": "$REPO", "hook_event_name": "Notification", "message": "Claude needs your permission", "notification_type": "permission_prompt", "session_id": "session-1", "transcript_path": "$SESSION.jsonl"}, "t": 10.01}
+{"input": "approve", "t": 19.02}
+{"t": 19.03, "title": "◐ Integration hook regression test"}
+{"hook": {"cwd": "$REPO", "hook_event_name": "PostToolUse", "permission_mode": "default", "session_id": "session-1", "tool_input": {"file_path": "$SCRATCH/ZENTTY_AGENT_BENCH_APPROVAL_OK"}, "tool_name": "Write", "tool_response": {"type": "create"}, "tool_use_id": "tool-4", "transcript_path": "$SESSION.jsonl"}, "t": 19.07}
+{"hook": {"cwd": "$REPO", "hook_event_name": "UserPromptSubmit", "permission_mode": "default", "prompt": "<task-notification>", "session_id": "session-1", "transcript_path": "$SESSION.jsonl"}, "t": 19.09}
+{"t": 19.99, "title": "◑ Integration hook regression test"}
+{"hook": {"cwd": "$REPO", "hook_event_name": "Stop", "permission_mode": "default", "session_id": "session-1", "transcript_path": "$SESSION.jsonl"}, "t": 20.29}
+{"t": 20.29, "title": "✳ Integration hook regression test"}

@@ -571,6 +571,377 @@ final class AppDelegateTests: XCTestCase {
         XCTAssertEqual(visibleManagedWindows.count, 1)
     }
 
+    func test_last_window_close_asks_termination_before_destroying_runtimes() throws {
+        NSApp.mainMenu = nil
+
+        let adapterStore = CloseEmittingAdapterStore()
+        let delegate = AppDelegate(
+            runtimeRegistryFactory: {
+                PaneRuntimeRegistry(adapterFactory: { paneID in
+                    adapterStore.makeAdapter(for: paneID)
+                })
+            }
+        )
+        delegate.applicationDidFinishLaunching(Notification(name: NSApplication.didFinishLaunchingNotification))
+        waitForAppWindows("window opened")
+
+        let controller = try XCTUnwrap(delegate.firstWindowController)
+        addTeardownBlock { @MainActor in
+            controller.onWindowDidClose = nil
+            controller.closeWindowBypassingConfirmation()
+        }
+        markPaneRunning(in: controller)
+        let closedBeforeCloseRequest = adapterStore.closedPaneIDs
+        XCTAssertGreaterThan(adapterStore.createdPaneIDs.count, closedBeforeCloseRequest.count)
+
+        var terminationRequests = 0
+        controller.requestApplicationTermination = { terminationRequests += 1 }
+
+        XCTAssertFalse(controller.windowShouldClose(controller.window))
+
+        XCTAssertEqual(terminationRequests, 1)
+        XCTAssertEqual(delegate.windowControllerCount, 1)
+        XCTAssertTrue(controller.window.isVisible)
+        XCTAssertEqual(adapterStore.closedPaneIDs, closedBeforeCloseRequest)
+    }
+
+    func test_last_window_quit_writes_clean_exit_snapshot_with_final_scrollback() throws {
+        NSApp.mainMenu = nil
+
+        let (delegate, store) = try launchRestoredWorkspace { config in
+            config.confirmations.confirmBeforeQuitting = false
+        }
+        waitForAppWindows("restore launched")
+
+        let controller = try XCTUnwrap(delegate.firstWindowController)
+        addTeardownBlock { @MainActor in
+            controller.onWindowDidClose = nil
+            controller.closeWindowBypassingConfirmation()
+        }
+        controller.worklaneStore.styledScrollbackProvider = { _ in "final output" }
+        controller.requestApplicationTermination = {
+            XCTAssertEqual(delegate.applicationShouldTerminate(NSApp), .terminateNow)
+            delegate.applicationWillTerminate(Notification(name: NSApplication.willTerminateNotification))
+        }
+
+        XCTAssertFalse(controller.windowShouldClose(controller.window))
+
+        let envelope = try XCTUnwrap(store.prepareForLaunch(restorePreferenceEnabled: true)).envelope
+        XCTAssertEqual(envelope.reason, .cleanExit)
+        XCTAssertEqual(envelope.workspace.windows.map(\.id), ["window-main"])
+        let panes = envelope.workspace.windows.flatMap(\.worklanes).flatMap(\.allPanes)
+        XCTAssertFalse(panes.isEmpty)
+        XCTAssertTrue(panes.allSatisfy { $0.scrollbackFile != nil })
+    }
+
+    func test_launch_after_two_incomplete_restores_sets_the_snapshot_aside_and_opens_a_default_window() throws {
+        NSApp.mainMenu = nil
+
+        let (delegate, store) = try launchRestoredWorkspace(
+            beforeLaunch: { store in
+                try self.seedScrollback("pane-main-L0.txt", for: store)
+                try self.dieWhileRestoring(store, times: 2)
+            }
+        )
+        closeLastWindowInTeardown(of: delegate)
+        waitForAppWindows("set-aside launch settled")
+
+        let directoryURL = store.snapshotURL.deletingLastPathComponent()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: store.snapshotURL.path))
+        let setAsideURL = directoryURL.appendingPathComponent("restore-snapshot.set-aside-1.json")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: setAsideURL.path))
+
+        XCTAssertEqual(delegate.windowControllerCount, 1)
+        let controller = try XCTUnwrap(delegate.firstWindowController)
+        XCTAssertFalse(controller.workspaceRecipeWindow.id == "window-main")
+        let panes = controller.workspaceRecipeWindow.worklanes.flatMap(\.allPanes)
+        XCTAssertFalse(panes.contains { $0.id == "pane-main" || $0.id == "pane-second" })
+
+        let toast = try XCTUnwrap(controller.rootViewControllerForTesting.pathCopiedToastViewForTesting)
+        XCTAssertEqual(toast.messageForTesting, "Couldn’t reopen your workspace. It was set aside.")
+        XCTAssertEqual(toast.iconSymbolNameForTesting, "xmark.circle.fill")
+        XCTAssertEqual(toast.dismissDelayForTesting, 6)
+        let host = try XCTUnwrap(toast.superview)
+        XCTAssertTrue(host.bounds.contains(toast.frame), "\(toast.frame) is outside \(host.bounds)")
+
+        // The default window's first save discards saved output, which takes
+        // the stray file with it. The set-aside snapshot's file has to stay.
+        let archive = SessionScrollbackArchive(stateDirectoryURL: directoryURL)
+        let strayFilePath = archive.directoryURL.appendingPathComponent("pane-stray-L0.txt").path
+        let discarded = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in !FileManager.default.fileExists(atPath: strayFilePath) },
+            object: nil
+        )
+        wait(for: [discarded], timeout: 5.0)
+        XCTAssertNotNil(archive.existingFilePath(forFileName: "pane-main-L0.txt"))
+    }
+
+    func test_toast_for_a_set_aside_snapshot_lands_in_the_folder_window_a_launch_opened() throws {
+        NSApp.mainMenu = nil
+        let folderURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ZenttyTests.AppDelegate.Folder.\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: folderURL) }
+
+        let (delegate, _) = try launchRestoredWorkspace(
+            beforeLaunch: { store in try self.dieWhileRestoring(store, times: 2) },
+            openingBeforeLaunch: [folderURL]
+        )
+        closeLastWindowInTeardown(of: delegate)
+        waitForAppWindows("set-aside launch settled")
+
+        XCTAssertEqual(delegate.windowControllerCount, 1)
+        let controller = try XCTUnwrap(delegate.firstWindowController)
+        XCTAssertNotNil(controller.rootViewControllerForTesting.pathCopiedToastViewForTesting)
+    }
+
+    func test_launch_that_cannot_set_the_snapshot_aside_keeps_it_when_the_default_window_saves_and_quits() throws {
+        NSApp.mainMenu = nil
+
+        let (delegate, store) = try launchRestoredWorkspace(
+            fileManager: RenameFailingFileManager(),
+            beforeLaunch: { store in
+                try self.seedScrollback("pane-main-L0.txt", for: store)
+                try self.dieWhileRestoring(store, times: 2)
+            }
+        )
+        closeLastWindowInTeardown(of: delegate)
+        let originalSnapshot = try Data(contentsOf: store.snapshotURL)
+        waitForAppWindows("launch settled")
+
+        let controller = try XCTUnwrap(delegate.firstWindowController)
+        XCTAssertFalse(controller.workspaceRecipeWindow.id == "window-main")
+        let toast = try XCTUnwrap(controller.rootViewControllerForTesting.pathCopiedToastViewForTesting)
+        XCTAssertEqual(toast.messageForTesting, "Couldn’t reopen your workspace. It’s still saved.")
+        XCTAssertEqual(toast.dismissDelayForTesting, 6)
+
+        waitForStrayScrollbackPurge(for: store)
+        delegate.applicationWillTerminate(Notification(name: NSApplication.willTerminateNotification))
+
+        try assertSnapshotIsUntouched(originalSnapshot, store: store)
+    }
+
+    func test_launch_that_cannot_set_the_snapshot_aside_keeps_it_when_a_folder_window_saves_and_quits() throws {
+        NSApp.mainMenu = nil
+        let folderURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ZenttyTests.AppDelegate.Folder.\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: folderURL) }
+
+        let (delegate, store) = try launchRestoredWorkspace(
+            fileManager: RenameFailingFileManager(),
+            beforeLaunch: { store in
+                try self.seedScrollback("pane-main-L0.txt", for: store)
+                try self.dieWhileRestoring(store, times: 2)
+            },
+            openingBeforeLaunch: [folderURL]
+        )
+        closeLastWindowInTeardown(of: delegate)
+        let originalSnapshot = try Data(contentsOf: store.snapshotURL)
+        waitForAppWindows("launch settled")
+
+        waitForStrayScrollbackPurge(for: store)
+        delegate.applicationWillTerminate(Notification(name: NSApplication.willTerminateNotification))
+
+        try assertSnapshotIsUntouched(originalSnapshot, store: store)
+    }
+
+    func test_a_rename_that_works_on_a_later_save_sets_the_snapshot_aside_and_says_so() throws {
+        NSApp.mainMenu = nil
+        let fileManager = RenameFailingFileManager()
+
+        let (delegate, store) = try launchRestoredWorkspace(
+            fileManager: fileManager,
+            beforeLaunch: { store in try self.dieWhileRestoring(store, times: 2) }
+        )
+        closeLastWindowInTeardown(of: delegate)
+        fileManager.setFailsRenames(false)
+
+        let setAsideURL = store.snapshotURL
+            .deletingLastPathComponent()
+            .appendingPathComponent("restore-snapshot.set-aside-1.json")
+        let renamed = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in FileManager.default.fileExists(atPath: setAsideURL.path) },
+            object: nil
+        )
+        wait(for: [renamed], timeout: 5.0)
+        waitForAppWindows("toast updated")
+
+        let controller = try XCTUnwrap(delegate.firstWindowController)
+        let toast = try XCTUnwrap(controller.rootViewControllerForTesting.pathCopiedToastViewForTesting)
+        XCTAssertEqual(toast.messageForTesting, "Couldn’t reopen your workspace. It was set aside.")
+        XCTAssertEqual(toast.dismissDelayForTesting, 6)
+    }
+
+    func test_launch_after_one_incomplete_restore_still_restores_without_a_toast() throws {
+        NSApp.mainMenu = nil
+
+        let (delegate, store) = try launchRestoredWorkspace(
+            beforeLaunch: { store in try self.dieWhileRestoring(store, times: 1) }
+        )
+        closeLastWindowInTeardown(of: delegate)
+        waitForAppWindows("restore launched")
+
+        let controller = try XCTUnwrap(delegate.firstWindowController)
+        XCTAssertEqual(controller.workspaceRecipeWindow.id, "window-main")
+        XCTAssertNil(controller.rootViewControllerForTesting.pathCopiedToastViewForTesting)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: store.snapshotURL.path))
+    }
+
+    func test_launch_with_session_restore_disabled_leaves_the_restore_files_alone() throws {
+        NSApp.mainMenu = nil
+
+        let (delegate, store) = try launchRestoredWorkspace(
+            sessionRestoreEnabled: false,
+            beforeLaunch: { store in try self.dieWhileRestoring(store, times: 2) }
+        )
+        closeLastWindowInTeardown(of: delegate)
+        waitForAppWindows("default window opened")
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: store.snapshotURL.path))
+        let controller = try XCTUnwrap(delegate.firstWindowController)
+        XCTAssertNil(controller.rootViewControllerForTesting.pathCopiedToastViewForTesting)
+    }
+
+    func test_launch_keeps_snapshot_until_replacement_is_saved() throws {
+        NSApp.mainMenu = nil
+
+        let (delegate, store) = try launchRestoredWorkspace()
+        let snapshotURL = store.snapshotURL
+        let snapshotAtLaunch = try Data(contentsOf: snapshotURL)
+
+        let controller = try XCTUnwrap(delegate.firstWindowController)
+        addTeardownBlock { @MainActor in
+            controller.onWindowDidClose = nil
+            controller.closeWindowBypassingConfirmation()
+        }
+
+        let replaced = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                guard let current = try? Data(contentsOf: snapshotURL) else { return false }
+                return current != snapshotAtLaunch
+            },
+            object: nil
+        )
+        wait(for: [replaced], timeout: 5.0)
+
+        XCTAssertEqual(delegate.windowControllerCount, 1)
+        let envelope = try XCTUnwrap(store.prepareForLaunch(restorePreferenceEnabled: true)).envelope
+        XCTAssertEqual(envelope.workspace.windows.map(\.id), ["window-main"])
+    }
+
+    func test_close_window_command_respects_close_confirmation() throws {
+        NSApp.mainMenu = nil
+
+        let configStore = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.AppDelegate.CloseCommand")
+        )
+        try configStore.update { config in
+            config.confirmations.confirmBeforeClosingWindow = true
+        }
+        let delegate = AppDelegate(
+            runtimeRegistryFactory: { PaneRuntimeRegistry(adapterFactory: { _ in MockTerminalAdapter() }) },
+            configStore: configStore
+        )
+        delegate.applicationDidFinishLaunching(Notification(name: NSApplication.didFinishLaunchingNotification))
+        delegate.newWindow(nil)
+        waitForAppWindows("windows opened")
+
+        let controller = try XCTUnwrap(delegate.windowControllersForTesting.first)
+        markPaneRunning(in: controller)
+
+        controller.rootViewControllerForTesting.routeCloseWindow()
+        controller.rootViewControllerForTesting.routeCloseWindow()
+
+        XCTAssertTrue(controller.window.isVisible)
+        XCTAssertEqual(delegate.windowControllerCount, 2)
+        XCTAssertEqual(controller.window.sheets.count, 1)
+
+        // Cancel keeps the window; confirming closes it.
+        try answerSheet(on: controller.window, with: .alertSecondButtonReturn)
+        XCTAssertTrue(controller.window.isVisible)
+        XCTAssertEqual(delegate.windowControllerCount, 2)
+
+        controller.rootViewControllerForTesting.routeCloseWindow()
+        try answerSheet(on: controller.window, with: .alertFirstButtonReturn)
+        XCTAssertFalse(controller.window.isVisible)
+        XCTAssertEqual(delegate.windowControllerCount, 1)
+    }
+
+    func test_last_pane_exit_under_quit_sheet_cancels_the_quit_when_another_window_remains() throws {
+        let outcome = try exitLastPaneUnderQuitSheet(windowCount: 2)
+
+        XCTAssertEqual(outcome.windowWillCloseCount, 1)
+        XCTAssertEqual(outcome.replies, [false], "AppKit stays in terminateLater until the prompt replies")
+        XCTAssertEqual(outcome.terminationRequests, 0)
+        XCTAssertTrue(outcome.closedWindow.sheets.isEmpty)
+        XCTAssertEqual(outcome.delegate.windowControllerCount, 1)
+    }
+
+    func test_last_pane_exit_under_quit_sheet_still_quits_when_no_window_remains() throws {
+        let outcome = try exitLastPaneUnderQuitSheet(windowCount: 1)
+
+        XCTAssertEqual(outcome.windowWillCloseCount, 1)
+        XCTAssertEqual(outcome.replies, [false], "AppKit stays in terminateLater until the prompt replies")
+        XCTAssertEqual(outcome.terminationRequests, 1, "losing the last window quits, as it does without a prompt")
+        XCTAssertTrue(outcome.closedWindow.sheets.isEmpty)
+        XCTAssertEqual(outcome.delegate.windowControllerCount, 0)
+    }
+
+    func test_close_sheet_confirmed_after_the_other_window_closed_quits_with_a_final_snapshot() throws {
+        NSApp.mainMenu = nil
+
+        let (delegate, store) = try launchRestoredWorkspace { config in
+            config.confirmations.confirmBeforeClosingWindow = true
+            config.confirmations.confirmBeforeQuitting = true
+        }
+        delegate.newWindow(nil)
+        waitForAppWindows("windows opened")
+
+        let controllers = delegate.windowControllersForTesting
+        let controller = try XCTUnwrap(controllers.first { $0.windowID.rawValue == "window-main" })
+        let otherController = try XCTUnwrap(controllers.first { $0 !== controller })
+        addTeardownBlock { @MainActor in
+            controller.onWindowDidClose = nil
+            controller.closeWindowBypassingConfirmation()
+        }
+
+        var worklanes = controller.worklaneStore.worklanes
+        let paneID = try XCTUnwrap(worklanes[0].paneStripState.panes.first?.id)
+        worklanes[0].auxiliaryStateByPaneID[paneID, default: PaneAuxiliaryState()].hasCommandHistory = true
+        controller.rootViewControllerForTesting.replaceWorklanes(worklanes, activeWorklaneID: worklanes[0].id)
+        waitForAppWindows("pane marked running", delay: 0.05)
+        controller.worklaneStore.styledScrollbackProvider = { _ in "final output" }
+
+        var terminationRequests = 0
+        controller.requestApplicationTermination = {
+            terminationRequests += 1
+            XCTAssertEqual(
+                delegate.applicationShouldTerminate(NSApp),
+                .terminateNow,
+                "the Close Window sheet already asked"
+            )
+            delegate.applicationWillTerminate(Notification(name: NSApplication.willTerminateNotification))
+        }
+
+        controller.requestClose()
+        XCTAssertEqual(controller.window.sheets.count, 1)
+
+        otherController.closeWindowBypassingConfirmation()
+        waitForAppWindows("other window closed")
+        XCTAssertTrue(delegate.isLastRegisteredWindow(controller))
+
+        try answerSheet(on: controller.window, with: .alertFirstButtonReturn)
+
+        XCTAssertEqual(terminationRequests, 1)
+        let envelope = try XCTUnwrap(store.prepareForLaunch(restorePreferenceEnabled: true)).envelope
+        XCTAssertEqual(envelope.reason, .cleanExit)
+        XCTAssertEqual(envelope.workspace.windows.map(\.id), ["window-main"])
+        let panes = envelope.workspace.windows.flatMap(\.worklanes).flatMap(\.allPanes)
+        XCTAssertFalse(panes.isEmpty)
+        XCTAssertTrue(panes.allSatisfy { $0.scrollbackFile != nil })
+    }
+
     func test_application_quit_prompt_attaches_to_key_window_when_background_window_has_active_terminal_progress() throws {
         NSApp.mainMenu = nil
 
@@ -1321,6 +1692,233 @@ private extension AppDelegateTests {
         button.performClick(button)
     }
 
+    /// A pane the quit and close confirmations treat as busy.
+    func markPaneRunning(in controller: MainWindowController) {
+        let paneID = PaneID("main-shell")
+        controller.rootViewControllerForTesting.replaceWorklanes([
+            WorklaneState(
+                id: WorklaneID("main"),
+                title: nil,
+                paneStripState: PaneStripState(
+                    panes: [PaneState(id: paneID, title: "shell")],
+                    focusedPaneID: paneID
+                ),
+                terminalProgressByPaneID: [
+                    paneID: TerminalProgressReport(state: .indeterminate, progress: nil)
+                ]
+            )
+        ], activeWorklaneID: WorklaneID("main"))
+        waitForAppWindows("worklane replaced", delay: 0.05)
+    }
+
+    struct QuitSheetExitOutcome {
+        let delegate: AppDelegate
+        let closedWindow: NSWindow
+        let windowWillCloseCount: Int
+        let replies: [Bool]
+        let terminationRequests: Int
+    }
+
+    /// Shows the real quit sheet on a busy window, then exits its last shell.
+    func exitLastPaneUnderQuitSheet(windowCount: Int) throws -> QuitSheetExitOutcome {
+        NSApp.mainMenu = nil
+
+        let configStore = AppConfigStore(
+            fileURL: AppConfigStore.temporaryFileURL(prefix: "ZenttyTests.AppDelegate.QuitSheetExit")
+        )
+        try configStore.update { config in
+            config.confirmations.confirmBeforeQuitting = true
+        }
+        let delegate = AppDelegate(
+            runtimeRegistryFactory: { PaneRuntimeRegistry(adapterFactory: { _ in MockTerminalAdapter() }) },
+            configStore: configStore
+        )
+        delegate.applicationDidFinishLaunching(Notification(name: NSApplication.didFinishLaunchingNotification))
+        for _ in 1..<windowCount {
+            delegate.newWindow(nil)
+        }
+        waitForAppWindows("windows opened")
+
+        let controller = try XCTUnwrap(delegate.windowControllersForTesting.first)
+        markPaneRunning(in: controller)
+        controller.window.makeKeyAndOrderFrontForHostedTesting(nil)
+        NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: controller.window)
+        waitForAppWindows("key window focused", delay: 0.05)
+
+        var replies: [Bool] = []
+        delegate.replyToQuitPrompt = { replies.append($0) }
+        var terminationRequests = 0
+        controller.requestApplicationTermination = { terminationRequests += 1 }
+        var windowWillCloseCount = 0
+        let observer = NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: controller.window,
+            queue: nil
+        ) { _ in
+            MainActor.assumeIsolated { windowWillCloseCount += 1 }
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        XCTAssertEqual(delegate.applicationShouldTerminate(NSApp), .terminateLater)
+        XCTAssertEqual(controller.window.sheets.count, 1)
+
+        controller.rootViewControllerForTesting.handleTerminalEventForTesting(
+            paneID: PaneID("main-shell"),
+            event: .surfaceClosed
+        )
+        waitForAppWindows("window closed")
+
+        return QuitSheetExitOutcome(
+            delegate: delegate,
+            closedWindow: controller.window,
+            windowWillCloseCount: windowWillCloseCount,
+            replies: replies,
+            terminationRequests: terminationRequests
+        )
+    }
+
+    func answerSheet(on window: NSWindow, with response: NSApplication.ModalResponse) throws {
+        let sheet = try XCTUnwrap(window.attachedSheet)
+        window.endSheet(sheet, returnCode: response)
+        waitForAppWindows("sheet answered", delay: 0.05)
+        XCTAssertNil(window.attachedSheet)
+    }
+
+    /// Launches from a two-pane snapshot on disk. Returns right after launch,
+    /// so a test can look at the snapshot before the first debounced save.
+    func launchRestoredWorkspace(
+        fileManager: FileManager = .default,
+        sessionRestoreEnabled: Bool = true,
+        configure: (inout AppConfig) -> Void = { _ in },
+        beforeLaunch: (SessionRestoreStore) throws -> Void = { _ in },
+        openingBeforeLaunch folders: [URL] = []
+    ) throws -> (delegate: AppDelegate, store: SessionRestoreStore) {
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ZenttyTests.AppDelegate.Restore.\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let frameDefaultsName = "ZenttyTests.AppDelegate.Restore.Frame.\(UUID().uuidString)"
+        let frameDefaults = try XCTUnwrap(UserDefaults(suiteName: frameDefaultsName))
+        testDefaultsSuiteNames.append(frameDefaultsName)
+
+        let configStore = AppConfigStore(fileURL: directoryURL.appendingPathComponent("config.toml"))
+        try configStore.update(configure)
+
+        let store = SessionRestoreStore(
+            snapshotURL: directoryURL.appendingPathComponent("restore-snapshot.json"),
+            lifecycleURL: directoryURL.appendingPathComponent("restore-lifecycle.json"),
+            fileManager: fileManager
+        )
+        func column(_ id: String) -> WorkspaceRecipe.Column {
+            WorkspaceRecipe.Column(
+                id: "column-\(id)",
+                width: 800,
+                focusedPaneID: "pane-\(id)",
+                lastFocusedPaneID: "pane-\(id)",
+                paneHeights: [1],
+                panes: [WorkspaceRecipe.Pane(id: "pane-\(id)", titleSeed: id, workingDirectory: nil)]
+            )
+        }
+        try store.saveSnapshot(
+            SessionRestoreEnvelope(
+                workspace: WorkspaceRecipe(
+                    windows: [
+                        WorkspaceRecipe.Window(
+                            id: "window-main",
+                            worklanes: [
+                                WorkspaceRecipe.Worklane(
+                                    id: "worklane-main",
+                                    title: "Main",
+                                    nextPaneNumber: 3,
+                                    focusedColumnID: "column-main",
+                                    columns: [column("main"), column("second")],
+                                    color: nil,
+                                    bookmarkOriginID: nil
+                                )
+                            ],
+                            activeWorklaneID: "worklane-main"
+                        )
+                    ],
+                    activeWindowID: "window-main"
+                )
+            )
+        )
+
+        let delegate = AppDelegate(
+            runtimeRegistryFactory: { PaneRuntimeRegistry(adapterFactory: { _ in MockTerminalAdapter() }) },
+            configStore: configStore,
+            appUpdateController: StubAppUpdateController(canCheckForUpdates: true),
+            sessionRestoreStore: store,
+            sessionRestoreEnabled: sessionRestoreEnabled,
+            windowFrameDefaults: frameDefaults
+        )
+        try beforeLaunch(store)
+        if !folders.isEmpty {
+            delegate.application(NSApp, open: folders)
+        }
+        delegate.applicationDidFinishLaunching(Notification(name: NSApplication.didFinishLaunchingNotification))
+        return (delegate, store)
+    }
+
+    /// Launches that reached the restore and never got to their first save.
+    func dieWhileRestoring(_ store: SessionRestoreStore, times: Int) throws {
+        for _ in 0..<times {
+            _ = try store.beginLaunch(restorePreferenceEnabled: true)
+        }
+    }
+
+    /// Closing a delegate's last window quits, which would take the test host
+    /// down with it.
+    func closeLastWindowInTeardown(of delegate: AppDelegate) {
+        guard let controller = delegate.firstWindowController else { return }
+        addTeardownBlock { @MainActor in
+            controller.onWindowDidClose = nil
+            controller.closeWindowBypassingConfirmation()
+        }
+    }
+
+    /// Points the snapshot's first pane at a saved output file on disk, next to
+    /// a file nothing references.
+    func seedScrollback(_ fileName: String, for store: SessionRestoreStore) throws {
+        let directoryURL = store.snapshotURL.deletingLastPathComponent()
+        var envelope = try XCTUnwrap(store.prepareForLaunch(restorePreferenceEnabled: true)).envelope
+        envelope.workspace.updateAllPanes { pane in
+            pane.scrollbackFile = pane.id == "pane-main" ? fileName : nil
+        }
+        try store.saveSnapshot(envelope)
+        let archive = SessionScrollbackArchive(stateDirectoryURL: directoryURL)
+        try archive.write("saved output\n", fileName: fileName)
+        try archive.write("stray output\n", fileName: "pane-stray-L0.txt")
+    }
+
+    /// Only the debounced first save purges, so this waits that save out.
+    func waitForStrayScrollbackPurge(for store: SessionRestoreStore) {
+        let archive = SessionScrollbackArchive(stateDirectoryURL: store.snapshotURL.deletingLastPathComponent())
+        let strayFilePath = archive.directoryURL.appendingPathComponent("pane-stray-L0.txt").path
+        let purged = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in !FileManager.default.fileExists(atPath: strayFilePath) },
+            object: nil
+        )
+        wait(for: [purged], timeout: 5.0)
+    }
+
+    /// The saves ran by now: quitting waits for the persistence queue. The
+    /// next launch still owes the rename, and the saved output is still there.
+    func assertSnapshotIsUntouched(_ originalSnapshot: Data, store: SessionRestoreStore) throws {
+        let directoryURL = store.snapshotURL.deletingLastPathComponent()
+        XCTAssertEqual(try Data(contentsOf: store.snapshotURL), originalSnapshot)
+        XCTAssertNotNil(
+            SessionScrollbackArchive(stateDirectoryURL: directoryURL)
+                .existingFilePath(forFileName: "pane-main-L0.txt")
+        )
+        let nextLaunch = SessionRestoreStore(stateDirectoryURL: directoryURL)
+        XCTAssertEqual(
+            try nextLaunch.beginLaunch(restorePreferenceEnabled: true),
+            .setAside(directoryURL.appendingPathComponent("restore-snapshot.set-aside-1.json"))
+        )
+    }
+
     func waitForAppWindows(
         _ description: String = "windows settled",
         delay: TimeInterval = 0.1
@@ -1333,15 +1931,33 @@ private extension AppDelegateTests {
     }
 }
 
+private final class RenameFailingFileManager: FileManager {
+    private let lock = NSLock()
+    private var failsRenames = true
+
+    func setFailsRenames(_ fails: Bool) {
+        lock.withLock { failsRenames = fails }
+    }
+
+    override func moveItem(at srcURL: URL, to dstURL: URL) throws {
+        if lock.withLock({ failsRenames }) {
+            throw CocoaError(.fileWriteNoPermission)
+        }
+        try super.moveItem(at: srcURL, to: dstURL)
+    }
+}
+
 @MainActor
 private final class CloseEmittingAdapterStore {
     var paneIDThatEmitsSurfaceClosedOnClose: PaneID?
     private(set) var createdPaneIDs: [PaneID] = []
+    private(set) var closedPaneIDs: [PaneID] = []
 
     func makeAdapter(for paneID: PaneID) -> any TerminalAdapter {
         createdPaneIDs.append(paneID)
         return CloseEmittingTerminalAdapter(
-            emitsSurfaceClosedOnClose: paneID == paneIDThatEmitsSurfaceClosedOnClose
+            emitsSurfaceClosedOnClose: paneID == paneIDThatEmitsSurfaceClosedOnClose,
+            onClose: { [weak self] in self?.closedPaneIDs.append(paneID) }
         )
     }
 }
@@ -1350,6 +1966,7 @@ private final class CloseEmittingAdapterStore {
 private final class CloseEmittingTerminalAdapter: TerminalAdapter {
     private let terminalView = TerminalSurfaceMockView()
     private let emitsSurfaceClosedOnClose: Bool
+    private let onClose: () -> Void
 
     var hasScrollback = false
     var cellWidth: CGFloat = 0
@@ -1357,8 +1974,9 @@ private final class CloseEmittingTerminalAdapter: TerminalAdapter {
     var metadataDidChange: ((TerminalMetadata) -> Void)?
     var eventDidOccur: ((TerminalEvent) -> Void)?
 
-    init(emitsSurfaceClosedOnClose: Bool) {
+    init(emitsSurfaceClosedOnClose: Bool, onClose: @escaping () -> Void) {
         self.emitsSurfaceClosedOnClose = emitsSurfaceClosedOnClose
+        self.onClose = onClose
     }
 
     func makeTerminalView() -> NSView {
@@ -1370,6 +1988,7 @@ private final class CloseEmittingTerminalAdapter: TerminalAdapter {
     }
 
     func close() {
+        onClose()
         if emitsSurfaceClosedOnClose {
             eventDidOccur?(.surfaceClosed)
         }

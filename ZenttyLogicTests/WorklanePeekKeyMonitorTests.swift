@@ -171,6 +171,64 @@ final class WorklanePeekKeyMonitorTests: XCTestCase {
         XCTAssertNil(monitor.processKeyDown(.init(keyCode: 123, containsControl: false, containsShift: false, isPeeking: true)))
         XCTAssertNil(monitor.processKeyDown(.init(keyCode: 123, containsControl: true, containsShift: false, isPeeking: false)))
     }
+
+    // MARK: - Window scoping
+
+    private func makeUnshownWindow() -> NSWindow {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 200, height: 200),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        addTeardownBlock { window.close() }
+        return window
+    }
+
+    private func makeEscapeKeyDown(in window: NSWindow) throws -> NSEvent {
+        try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.control],
+            timestamp: 0,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "\u{1B}",
+            charactersIgnoringModifiers: "\u{1B}",
+            isARepeat: false,
+            keyCode: 53
+        ))
+    }
+
+    func test_key_down_from_another_window_is_not_handled() throws {
+        _ = NSApplication.shared
+        let targetWindow = makeUnshownWindow()
+        let otherWindow = makeUnshownWindow()
+        let monitor = WorklanePeekKeyMonitor()
+        monitor.targetWindow = targetWindow
+        var emitted: [WorklanePeekKeyMonitor.Event] = []
+        monitor.handler = { emitted.append($0) }
+
+        XCTAssertNotNil(monitor.process(try makeEscapeKeyDown(in: otherWindow)), "another window keeps its key")
+        XCTAssertEqual(emitted, [])
+
+        XCTAssertNil(monitor.process(try makeEscapeKeyDown(in: targetWindow)))
+        XCTAssertEqual(emitted, [.escape])
+    }
+
+    func test_window_scope_falls_back_to_the_key_window_for_events_without_a_window() {
+        let targetWindow = makeUnshownWindow()
+        let otherWindow = makeUnshownWindow()
+        typealias Monitor = WorklanePeekKeyMonitor
+
+        XCTAssertTrue(Monitor.isWindowScoped(eventWindow: targetWindow, keyWindow: otherWindow, targetWindow: targetWindow))
+        XCTAssertFalse(Monitor.isWindowScoped(eventWindow: otherWindow, keyWindow: targetWindow, targetWindow: targetWindow))
+        XCTAssertTrue(Monitor.isWindowScoped(eventWindow: nil, keyWindow: targetWindow, targetWindow: targetWindow))
+        XCTAssertFalse(Monitor.isWindowScoped(eventWindow: nil, keyWindow: otherWindow, targetWindow: targetWindow))
+        XCTAssertFalse(Monitor.isWindowScoped(eventWindow: nil, keyWindow: nil, targetWindow: targetWindow))
+        XCTAssertTrue(Monitor.isWindowScoped(eventWindow: otherWindow, keyWindow: nil, targetWindow: nil))
+    }
 }
 
 private struct MockPeekScrollEvent {

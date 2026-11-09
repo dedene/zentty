@@ -318,6 +318,22 @@ final class OverlayFloatAdapterTests: XCTestCase {
         XCTAssertEqual(store.activeWorklane?.floatingPane(id: id)?.mode, .minimized(order: 0), "only the first navigation reveals it")
     }
 
+    func test_restoring_overlay_from_pill_consumes_awaiting_reveal() throws {
+        let store = makeStore(tiles: ["a"], otherTiles: ["c"], activeOther: true)
+        let id = try open(store, on: "a", request(notify: true)).id
+
+        store.selectWorklane(id: mainID)
+        store.restoreFloat(id)
+        store.minimizePane(id)
+        store.revealOverlayFloatAwaitingNavigation(on: PaneID("a"))
+
+        XCTAssertEqual(
+            store.activeWorklane?.floatingPane(id: id)?.mode,
+            .minimized(order: 0),
+            "the user already saw it, so the notification must not re-open it"
+        )
+    }
+
     func test_background_overlay_without_notify_is_not_revealed_by_navigation() throws {
         let store = makeStore(tiles: ["a"], otherTiles: ["c"], activeOther: true)
         let id = try open(store, on: "a", request(notify: false)).id

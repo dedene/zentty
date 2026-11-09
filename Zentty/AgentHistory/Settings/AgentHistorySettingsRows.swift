@@ -139,6 +139,8 @@ enum AgentHistorySettingsRows {
 
     /// Maintenance note while `removals.json` can't be read: rebuilding fails closed.
     static let rebuildBlockedText = "Rebuild is off: Agent History can't read its list of removed sessions, and rebuilding without it could bring them back. Delete the index to start over."
+    /// Maintenance note while standing by: the index belongs to the instance writing it.
+    static let rebuildOwnedElsewhereText = "Rebuild is off: another Zentty instance owns the index. Rebuild there, or quit it and rebuild here."
 
     static func retentionText(days: Int) -> String {
         let period = days == 1 ? "1 day" : "\(days) days"

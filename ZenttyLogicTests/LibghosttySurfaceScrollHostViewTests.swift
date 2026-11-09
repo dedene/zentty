@@ -563,8 +563,8 @@ final class LibghosttySurfaceScrollHostViewTests: AppKitTestCase {
 
         scrollView.rightMouseDown(with: event)
 
-        XCTAssertEqual(harness.surface.mouseButtons.last?.button, GHOSTTY_MOUSE_RIGHT)
-        XCTAssertEqual(harness.surface.mouseButtons.last?.state, GHOSTTY_MOUSE_PRESS)
+        XCTAssertEqual(harness.surface.mouseButtons.map(\.button), [GHOSTTY_MOUSE_RIGHT, GHOSTTY_MOUSE_RIGHT])
+        XCTAssertEqual(harness.surface.mouseButtons.map(\.state), [GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_RELEASE])
         XCTAssertEqual(builderCallCount, 1)
         XCTAssertEqual(presentationCount, 1)
     }
@@ -587,8 +587,8 @@ final class LibghosttySurfaceScrollHostViewTests: AppKitTestCase {
 
         harness.hostView.rightMouseDown(with: event)
 
-        XCTAssertEqual(harness.surface.mouseButtons.last?.button, GHOSTTY_MOUSE_RIGHT)
-        XCTAssertEqual(harness.surface.mouseButtons.last?.state, GHOSTTY_MOUSE_PRESS)
+        XCTAssertEqual(harness.surface.mouseButtons.map(\.button), [GHOSTTY_MOUSE_RIGHT, GHOSTTY_MOUSE_RIGHT])
+        XCTAssertEqual(harness.surface.mouseButtons.map(\.state), [GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_RELEASE])
         XCTAssertEqual(builderCallCount, 1)
         XCTAssertEqual(presentationCount, 1)
     }

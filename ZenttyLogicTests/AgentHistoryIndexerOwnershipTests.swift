@@ -19,12 +19,13 @@ final class AgentHistoryIndexerOwnershipTests: XCTestCase {
     /// directory, its own recorder.
     private func makeSecondInstance(
         _ harness: AgentHistoryIndexerHarness,
-        recorder: AgentHistoryPublishedRecorder
+        recorder: AgentHistoryPublishedRecorder,
+        storage: AgentHistoryStorage? = nil
     ) -> AgentHistoryIndexer {
         let source = harness.source
         let clock = harness.clock
         let indexer = AgentHistoryIndexer(
-            storage: AgentHistoryStorage(paths: harness.index.paths),
+            storage: storage ?? AgentHistoryStorage(paths: harness.index.paths),
             stateStore: harness.stateStore,
             makeSources: { [source] },
             configuration: AgentHistoryIndexerConfiguration(
@@ -140,6 +141,171 @@ final class AgentHistoryIndexerOwnershipTests: XCTestCase {
         second.update(configuration: AgentHistoryIndexerConfiguration(
             enabledAgents: Set(AgentHistoryAgent.allCases), excludedFolders: []))
         wait(for: [shown], timeout: 5)
+    }
+
+    /// A standby instance hides what the owner's user removed: `removedKeys` keeps such a session
+    /// out of "Running now" and Settings counts it, also when it has no row to compare.
+    func test_standby_snapshot_carries_the_owners_tombstones() throws {
+        let harness = AgentHistoryIndexerHarness(testCase: self)
+        // A retry re-reads the index only while state.json lets it try to take over.
+        try harness.stateStore.update { $0.enabled = true; $0.consentedAt = Date() }
+        harness.source.setUnits([.single("s1", mtimeNs: 2), .single("s2", mtimeNs: 1)])
+        let owner = harness.makeIndexer()
+        owner.start()
+        owner.drainSynchronouslyForTesting()
+        let removedKey = AgentHistorySessionKey(agent: harness.source.agent, nativeID: "s2")
+        let removed = expectation(description: "removed")
+        owner.removeSession(removedKey) { ok in
+            XCTAssertTrue(ok)
+            removed.fulfill()
+        }
+        wait(for: [removed], timeout: 5)
+
+        let recorder = AgentHistoryPublishedRecorder()
+        let standingBy = recorder.expectStatus(self, "standing by") { Self.isStandingBy($0) }
+        let second = makeSecondInstance(harness, recorder: recorder)
+        second.start()
+        wait(for: [standingBy], timeout: 5)
+
+        XCTAssertEqual(second.currentSnapshot.removedKeys, [removedKey])
+        XCTAssertEqual(second.currentStatus.removedSessionCount, 1)
+        XCTAssertEqual(second.currentStatus.removedKeys, [removedKey])
+
+        // A live session with no row: the tombstones are all that changes.
+        let liveKey = AgentHistorySessionKey(agent: harness.source.agent, nativeID: "live")
+        let refreshed = recorder.expectSnapshot(self, "tombstones refreshed") { $0.removedKeys.contains(liveKey) }
+        let database = try AgentHistoryDatabase(url: harness.index.paths.databaseURL, mode: .readWrite, busyTimeoutMilliseconds: 2_000)
+        try database.run(
+            "INSERT INTO tombstones (agent, native_id, removed_at) VALUES (?, ?, 1)",
+            [.text(liveKey.agent.rawValue), .text(liveKey.nativeID)]
+        )
+        database.close()
+        wait(for: [refreshed], timeout: 5)
+
+        XCTAssertEqual(second.currentSnapshot.removedKeys, [removedKey, liveKey])
+        XCTAssertEqual(second.currentStatus.removedSessionCount, 2)
+    }
+
+    /// A standby that couldn't read the index knows nothing about removals. Its first good read
+    /// settles that even when the index holds nothing at all, so no snapshot differs from it.
+    func test_standby_hides_live_sessions_until_its_first_read_of_the_tombstones() throws {
+        let harness = AgentHistoryIndexerHarness(testCase: self)
+        let owner = harness.makeIndexer()
+        owner.start()
+        owner.drainSynchronouslyForTesting()
+
+        let recorder = AgentHistoryPublishedRecorder()
+        let standingBy = recorder.expectStatus(self, "standing by") { Self.isStandingBy($0) }
+        let second = makeSecondInstance(harness, recorder: recorder)
+        second.standbyRetryInterval = 60
+        let readFails = Flag(true)
+        second.afterStandbySessionsReadForTesting = {
+            if readFails.value {
+                throw AgentHistoryDatabaseError(kind: .busy, code: 5, extendedCode: 5, message: "injected")
+            }
+        }
+        second.start()
+        wait(for: [standingBy], timeout: 5)
+
+        let liveKey = AgentHistorySessionKey(agent: harness.source.agent, nativeID: "live")
+        XCTAssertEqual(Self.liveLookup(liveKey, in: second.currentSnapshot), .hidden)
+
+        readFails.value = false
+        second.queue.sync { second.refreshStandbySnapshot() }
+
+        XCTAssertEqual(Self.liveLookup(liveKey, in: second.currentSnapshot), .notIndexed)
+    }
+
+    /// The owner commits a removal between the standby's reads. All of them come from one SQLite
+    /// snapshot, so the session is either listed and not removed, or removed and not listed.
+    func test_standby_never_publishes_a_session_with_its_own_tombstone() throws {
+        let harness = AgentHistoryIndexerHarness(testCase: self)
+        harness.source.setUnits([.single("s1", mtimeNs: 2), .single("s2", mtimeNs: 1)])
+        let owner = harness.makeIndexer()
+        owner.start()
+        owner.drainSynchronouslyForTesting()
+
+        let recorder = AgentHistoryPublishedRecorder()
+        let standingBy = recorder.expectStatus(self, "standing by") { Self.isStandingBy($0) }
+        let second = makeSecondInstance(harness, recorder: recorder)
+        second.standbyRetryInterval = 60
+        let key = AgentHistorySessionKey(agent: harness.source.agent, nativeID: "s2")
+        let removesMidRead = Flag(false)
+        second.afterStandbySessionsReadForTesting = {
+            guard removesMidRead.value else { return }
+            removesMidRead.value = false
+            owner.removeSession(key)
+            owner.queue.sync {}
+        }
+        second.start()
+        wait(for: [standingBy], timeout: 5)
+        XCTAssertEqual(Set(second.currentSnapshot.sessions.map(\.nativeID)), ["s1", "s2"])
+
+        removesMidRead.value = true
+        second.queue.sync { second.refreshStandbySnapshot() }
+
+        let midRead = second.currentSnapshot
+        XCTAssertFalse(midRead.sessions.contains { midRead.removedKeys.contains($0.key) })
+
+        second.queue.sync { second.refreshStandbySnapshot() }
+
+        XCTAssertEqual(second.currentSnapshot.sessions.map(\.nativeID), ["s1"])
+        XCTAssertEqual(second.currentSnapshot.removedKeys, [key])
+    }
+
+    private static func liveLookup(
+        _ key: AgentHistorySessionKey,
+        in snapshot: AgentHistoryMetadataSnapshot
+    ) -> HistoryLiveSessionLookup? {
+        HistoryMetadataIndex(
+            snapshot: { snapshot },
+            exclusions: { AgentHistoryExclusionMatcher(folders: []) }
+        ).liveSessions([(key: key, workingDirectory: nil)]).first
+    }
+
+    /// An open that failed earlier must not shut a later standby out of a healthy index: a
+    /// standby never opens the writer, so nothing else would clear it.
+    func test_standby_reads_after_an_earlier_failed_open() throws {
+        let harness = AgentHistoryIndexerHarness(testCase: self)
+        harness.source.setUnits([.single("s1")])
+        try FileManager.default.createDirectory(at: harness.index.paths.directoryURL, withIntermediateDirectories: true)
+        var options = AgentHistoryStorage.Options()
+        options.setupLockTimeout = 0.1
+        let storage = AgentHistoryStorage(paths: harness.index.paths, options: options, appVersion: "test")
+        addTeardownBlock { storage.readers.closeAll() }
+        let held = try AgentHistorySetupLock(url: harness.index.paths.lockURL, timeout: 0)
+        XCTAssertThrowsError(try storage.openWriter())
+        held.unlock()
+        XCTAssertEqual(storage.availability, .unavailable(.busy))
+
+        // The open's cause is gone and another instance owns the index when this one comes back.
+        let owner = harness.makeIndexer()
+        owner.start()
+        owner.drainSynchronouslyForTesting()
+
+        let recorder = AgentHistoryPublishedRecorder()
+        let standingBy = recorder.expectStatus(self, "standing by") { Self.isStandingBy($0) }
+        let second = makeSecondInstance(harness, recorder: recorder, storage: storage)
+        second.start()
+        wait(for: [standingBy], timeout: 5)
+
+        XCTAssertEqual(storage.availability, .ready)
+        XCTAssertEqual(second.currentSnapshot.sessions.map(\.nativeID), ["s1"])
+    }
+
+    /// Clearing a failed open leaves the newer-schema state alone: it is what keeps this build
+    /// from reading an index it does not understand.
+    func test_clearing_a_failed_open_keeps_the_newer_schema_state() throws {
+        let index = AgentHistoryTestIndex(testCase: self)
+        try index.openWriter().setUserVersion(AgentHistorySchema.currentVersion + 1)
+        index.closeWriter()
+        XCTAssertThrowsError(try index.storage.openWriter())
+        let newerSchema = AgentHistoryAvailability.readOnlyNewerSchema(found: AgentHistorySchema.currentVersion + 1)
+        XCTAssertEqual(index.storage.availability, newerSchema)
+
+        index.storage.clearStaleUnavailability()
+
+        XCTAssertEqual(index.storage.availability, newerSchema)
     }
 
     func test_busy_batch_is_retried_instead_of_dropped() throws {

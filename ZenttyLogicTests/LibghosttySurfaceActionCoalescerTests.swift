@@ -150,4 +150,31 @@ final class LibghosttySurfaceActionCoalescerTests: XCTestCase {
         XCTAssertEqual(title, "Working ⠙ zentty")
         XCTAssertEqual(batch.sequence, [.ordered(notification), .title])
     }
+
+    func test_coalescer_discard_search_events_keeps_metadata_and_later_start() {
+        let coalescer = LibghosttySurfaceActionCoalescer()
+        let commandFinished = LibghosttySurfaceActionPayload.commandFinished(
+            exitCode: 0,
+            durationNanoseconds: 42
+        )
+
+        XCTAssertTrue(coalescer.enqueue(.searchTotal(3)))
+        XCTAssertFalse(coalescer.enqueue(.searchSelected(1)))
+        XCTAssertFalse(coalescer.enqueue(.startSearch("stale")))
+        XCTAssertFalse(coalescer.enqueue(.endSearch))
+        XCTAssertFalse(coalescer.enqueue(commandFinished))
+        XCTAssertFalse(coalescer.enqueue(.setTitle("title")))
+
+        coalescer.discardSearchEvents()
+
+        // The drain scheduled by the first enqueue is still pending.
+        XCTAssertFalse(coalescer.enqueue(.startSearch("build")))
+
+        let batch = coalescer.drain()
+
+        XCTAssertEqual(
+            batch.sequence,
+            [.ordered(commandFinished), .title, .ordered(.startSearch("build"))]
+        )
+    }
 }

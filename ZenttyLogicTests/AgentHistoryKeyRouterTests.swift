@@ -84,7 +84,7 @@ final class AgentHistoryKeyRouterTests: XCTestCase {
 
     func test_command_w_closes_palette_in_every_body() {
         XCTAssertEqual(route(kVK_ANSI_W, .command, "w"), .closePalette)
-        XCTAssertEqual(route(kVK_ANSI_W, .command, "w", AgentHistoryKeyContext(bodyIsResults: false)), .closePalette)
+        XCTAssertEqual(route(kVK_ANSI_W, .command, "w", AgentHistoryKeyContext(body: .consent)), .closePalette)
         XCTAssertEqual(route(kVK_ANSI_W, .command, "w", AgentHistoryKeyContext(isSheetShown: true)), .closePalette)
     }
 
@@ -109,7 +109,7 @@ final class AgentHistoryKeyRouterTests: XCTestCase {
     }
 
     func test_consent_maps_return_to_confirm_and_escape() {
-        let consent = AgentHistoryKeyContext(bodyIsResults: false)
+        let consent = AgentHistoryKeyContext(body: .consent)
         XCTAssertEqual(route(kVK_Return, [], nil, consent), .consentConfirm)
         XCTAssertEqual(route(kVK_Escape, [], nil, consent), .escape)
         XCTAssertNil(route(kVK_DownArrow, arrowFlags, nil, consent))
@@ -121,7 +121,7 @@ final class AgentHistoryKeyRouterTests: XCTestCase {
     /// and buttons, while ↩ still confirms (the default button) and esc declines.
     @MainActor
     func test_consent_leaves_tab_shift_tab_and_space_to_its_controls() {
-        let consent = AgentHistoryKeyContext(bodyIsResults: false)
+        let consent = AgentHistoryKeyContext(body: .consent)
         XCTAssertNil(route(kVK_Tab, [], nil, consent))
         XCTAssertNil(route(kVK_Tab, .shift, nil, consent))
         XCTAssertNil(route(kVK_Space, [], " ", consent))
@@ -139,6 +139,50 @@ final class AgentHistoryKeyRouterTests: XCTestCase {
         XCTAssertFalse(AgentHistoryViewModel.Body.results.controlsTakeKeyboardFocus, "results keep focus in the search field")
         XCTAssertFalse(AgentHistoryViewModel.Body.loading.controlsTakeKeyboardFocus)
         XCTAssertFalse(AgentHistoryViewModel.Body.noAgents(checkedPaths: []).controlsTakeKeyboardFocus)
+    }
+
+    func test_history_off_routes_return_to_settings_and_escape_and_nothing_at_a_row() {
+        let off = AgentHistoryKeyContext(body: .historyOff)
+        XCTAssertEqual(route(kVK_Return, [], nil, off), .openSettings)
+        XCTAssertEqual(route(kVK_ANSI_KeypadEnter, .numericPad, nil, off), .openSettings)
+        XCTAssertEqual(route(kVK_Escape, [], nil, off), .escape)
+        XCTAssertEqual(route(kVK_ANSI_W, .command, "w", off), .closePalette)
+
+        XCTAssertNil(route(kVK_UpArrow, arrowFlags, nil, off))
+        XCTAssertNil(route(kVK_DownArrow, arrowFlags, nil, off))
+        XCTAssertNil(route(kVK_RightArrow, arrowFlags, nil, off))
+        XCTAssertNil(route(kVK_LeftArrow, arrowFlags, nil, off))
+        XCTAssertNil(route(kVK_Tab, [], nil, off), "Tab reaches the button with Full Keyboard Access")
+        XCTAssertNil(route(kVK_Space, [], " ", off))
+        XCTAssertNil(route(kVK_Return, .command, nil, off))
+        XCTAssertNil(route(kVK_ANSI_C, .command, "c", off))
+        XCTAssertNil(route(kVK_ANSI_Y, .command, "y", off))
+    }
+
+    @MainActor
+    func test_history_off_stands_alone_and_its_button_takes_focus() {
+        XCTAssertFalse(AgentHistoryViewModel.Body.historyOff.showsSearchChrome, "nothing can be searched while off")
+        XCTAssertFalse(AgentHistoryViewModel.Body.consent.showsSearchChrome)
+        XCTAssertTrue(AgentHistoryViewModel.Body.results.showsSearchChrome)
+        XCTAssertTrue(AgentHistoryViewModel.Body.historyOff.controlsTakeKeyboardFocus)
+    }
+
+    func test_index_progress_only_routes_return_and_escape() {
+        let progress = AgentHistoryKeyContext(isIndexProgressShown: true)
+        XCTAssertEqual(route(kVK_Return, [], nil, progress), .primary)
+        XCTAssertEqual(route(kVK_ANSI_KeypadEnter, .numericPad, nil, progress), .primary)
+        XCTAssertEqual(route(kVK_Escape, [], nil, progress), .escape)
+        XCTAssertEqual(route(kVK_ANSI_W, .command, "w", progress), .closePalette)
+
+        XCTAssertNil(route(kVK_UpArrow, arrowFlags, nil, progress))
+        XCTAssertNil(route(kVK_DownArrow, arrowFlags, nil, progress))
+        XCTAssertNil(route(kVK_RightArrow, arrowFlags, nil, progress))
+        XCTAssertNil(route(kVK_LeftArrow, arrowFlags, nil, progress))
+        XCTAssertNil(route(kVK_Tab, [], nil, progress))
+        XCTAssertNil(route(kVK_Tab, .shift, "\u{19}", progress))
+        XCTAssertNil(route(kVK_Return, .command, nil, progress))
+        XCTAssertNil(route(kVK_ANSI_C, .command, "c", progress), "⌘C copies the field's text, never a hidden row")
+        XCTAssertNil(route(kVK_ANSI_Y, .command, "y", progress))
     }
 
     func test_unrelated_keys_and_shortcuts_pass_through() {

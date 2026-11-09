@@ -154,6 +154,23 @@ enum AgentIPCBridge {
         return nil
     }
 
+    /// Entry point for the IPC server, whose connections run on independent
+    /// threads. Agent events go through their pane's serial stripe so one
+    /// adapter run and its posts form a single critical section.
+    static func handleSerializingAgentEvents(
+        request: AgentIPCRequest,
+        serializer: AgentEventSerializer = .shared,
+        post: (AgentStatusPayload) -> Void,
+        writeError: (Error) -> Void
+    ) throws -> AgentIPCResponse? {
+        guard request.subcommand == "agent-event" else {
+            return try handle(request: request, post: post, writeError: writeError)
+        }
+        return try serializer.run(paneID: request.environment["ZENTTY_PANE_ID"]) {
+            try handle(request: request, post: post, writeError: writeError)
+        }
+    }
+
     static func handle(
         request: AgentIPCRequest,
         post: (AgentStatusPayload) -> Void,
@@ -1039,7 +1056,7 @@ final class AgentIPCServer: @unchecked Sendable {
             // above. So no `bootstrap:` closure is needed — the default (which
             // throws `unsupportedSubcommand`) documents that there is a single
             // bootstrap path, in `resolveConsentedBootstrap`.
-            let response = try AgentIPCBridge.handle(
+            let response = try AgentIPCBridge.handleSerializingAgentEvents(
                 request: canonicalRequest,
                 post: post,
                 writeError: { error in

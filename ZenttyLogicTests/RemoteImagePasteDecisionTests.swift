@@ -2,6 +2,48 @@ import XCTest
 @testable import Zentty
 
 final class RemoteImagePasteDecisionTests: XCTestCase {
+    @MainActor
+    func test_cancelled_upload_does_not_clear_replacement_task() {
+        let controller = makeController()
+        let paneID = PaneID("pane-returned")
+        let cancelledToken = controller.insertUploadTaskForTesting(Task {}, for: paneID)
+
+        // The pane left the store, so this removes the entry and cancels the task,
+        // whose defer only runs later. Then the same pane ID comes back and pastes.
+        controller.cancelUploadsForRemovedPanes()
+        XCTAssertFalse(controller.hasUploadTaskForTesting(for: paneID))
+        let replacementToken = controller.insertUploadTaskForTesting(Task {}, for: paneID)
+
+        controller.clearUploadTaskForTesting(for: paneID, token: cancelledToken)
+
+        XCTAssertTrue(controller.hasUploadTaskForTesting(for: paneID, token: replacementToken))
+    }
+
+    @MainActor
+    func test_completed_upload_clears_its_own_task() {
+        let controller = makeController()
+        let paneID = PaneID("pane-finished")
+        let token = controller.insertUploadTaskForTesting(Task {}, for: paneID)
+
+        controller.clearUploadTaskForTesting(for: paneID, token: token)
+
+        XCTAssertFalse(controller.hasUploadTaskForTesting(for: paneID))
+    }
+
+    @MainActor
+    private func makeController() -> RemoteImagePasteController {
+        RemoteImagePasteController(
+            worklaneStore: WorklaneStore(),
+            runtimeRegistry: PaneRuntimeRegistry(),
+            uploader: RemoteImageUploader(),
+            sshProcessProbe: PaneSSHProcessProbe(),
+            toasts: WindowToastPresenter(
+                hostViewProvider: { nil },
+                themeProvider: { ZenttyTheme.fallback(for: nil) }
+            )
+        )
+    }
+
     func test_destination_uses_remote_shell_context_when_title_and_ssh_label_are_missing() throws {
         let shellContext = PaneShellContext(
             scope: .remote,

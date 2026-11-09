@@ -32,6 +32,7 @@ enum AgentStatusReconciliation {
             source: existingStatus.source,
             origin: existingStatus.origin,
             interactionKind: existingStatus.interactionKind,
+            interactionPromptID: existingStatus.interactionPromptID,
             confidence: existingStatus.confidence,
             shellActivityState: existingStatus.shellActivityState,
             trackedPID: existingStatus.trackedPID,

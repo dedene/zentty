@@ -61,6 +61,10 @@ final class BookmarkRestoreBannerView: NSView {
     }
 
     func present(over host: NSView) {
+        // Banners share an anchor, so only the latest restore stays on screen.
+        host.subviews
+            .filter { $0 is BookmarkRestoreBannerView && $0 !== self }
+            .forEach { $0.removeFromSuperview() }
         hostView = host
         host.addSubview(self)
         NSLayoutConstraint.activate([

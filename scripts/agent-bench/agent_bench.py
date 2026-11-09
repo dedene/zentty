@@ -25,6 +25,7 @@ import threading
 import time
 import uuid
 from collections import Counter
+from collections.abc import Mapping
 from typing import Any
 
 
@@ -116,6 +117,9 @@ REFUSAL_PATTERNS = [
 ]
 OSC_TERMINAL_PATTERN = re.compile(r"\x1b\](?P<code>0|2|9);(?P<text>[^\x07\x1b]*)(?:\x07|\x1b\\)")
 ANSI_ESCAPE_PATTERN = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+# Cursor moves that stand in for the spaces between words: Claude Code and Codex
+# diff their redraws, so a word gap is often a jump rather than a space.
+TERMINAL_CURSOR_GAP_PATTERN = re.compile(r"\x1b\[[0-9;]*[CGHf]")
 KIMI_VARIANT_PROBE_CACHE: dict[str, str] = {}
 OPENCODE_GENERATION_PROBE_CACHE: dict[str, str] = {}
 # Free OpenCode Zen model the opencode bench pins (override with
@@ -171,6 +175,11 @@ class ScenarioExpectation:
     # ClaudeWorkflowTraceReplayTests replays through the real Swift adapter
     # and registry, which this harness never runs itself.
     workflow_contract_required: bool = False
+    # Claude only: write `claude-<scenario>-hook-trace.jsonl` to the run dir,
+    # the sanitized hook stream with terminal titles and scripted inputs in
+    # order. ClaudeHookTraceReplayTests replays such traces through the real
+    # Swift adapter and store, which this harness never runs itself.
+    hook_trace: bool = False
     # A true end-to-end resume round-trip (modern kimi-code only): phase 1
     # creates a real session through the wrapper bootstrap against a bench-owned
     # home, phase 2 simulates a restart and resumes it by id, asserting the
@@ -194,6 +203,8 @@ class AgentProfile:
     input_by_scenario: dict[str, list[dict[str, Any]]] = dataclasses.field(default_factory=dict)
     environment_by_scenario: dict[str, dict[str, str]] = dataclasses.field(default_factory=dict)
     repeat_by_scenario: dict[str, int] = dataclasses.field(default_factory=dict)
+    # Files written into the scenario's temporary repo, by relative path.
+    repo_files_by_scenario: dict[str, dict[str, str]] = dataclasses.field(default_factory=dict)
     skip_patterns: list[str] = dataclasses.field(default_factory=list)
     tool: str = ""
     kimi_variant: str | None = None
@@ -258,6 +269,26 @@ class ScenarioResult:
     session_identity_observations: list[dict[str, Any]] = dataclasses.field(default_factory=list)
     timeline: list[dict[str, Any]] = dataclasses.field(default_factory=list)
     rerun_command: str = ""
+
+
+# Set by a Claude Code session that runs the bench. Inherited, they turn the
+# agent under test into a child session: transcript saving goes off, so the
+# subagent files the bench checks never appear, and it reports to its parent.
+PARENT_AGENT_SESSION_ENV_KEYS = (
+    "CLAUDECODE",
+    "CLAUDE_CODE_CHILD_SESSION",
+    "CLAUDE_CODE_ENTRYPOINT",
+    "CLAUDE_CODE_EXECPATH",
+    "CLAUDE_CODE_MESSAGING_SOCKET",
+    "CLAUDE_CODE_MESSAGING_TOKEN",
+    "CLAUDE_CODE_SESSION_ATTENDED",
+    "CLAUDE_CODE_SESSION_ID",
+    "CLAUDE_PID",
+)
+
+
+def without_parent_agent_session(environment: Mapping[str, str]) -> dict[str, str]:
+    return {key: value for key, value in environment.items() if key not in PARENT_AGENT_SESSION_ENV_KEYS}
 
 
 def compact_json(obj: Any) -> str:
@@ -447,6 +478,12 @@ def hook_record_event_names(record: TraceRecord) -> list[str | None]:
     notification_type = first_string(payload, ["notification_type", "notificationType"])
     if notification_type:
         names.append(f"{record.event_name}:{notification_type}")
+    # Subagent hooks carry the worker's kind. Claude's internal forks fire
+    # SubagentStop with an empty `agent_type`, so `SubagentStop:Explore` waits
+    # for the real worker where a bare `SubagentStop` would not.
+    agent_type = first_string(payload, ["agent_type"])
+    if agent_type and record.event_name in ("SubagentStart", "SubagentStop"):
+        names.append(f"{record.event_name}:{agent_type}")
     # Batch events (Muse PostToolBatch) carry their calls in `tool_calls`.
     batch_calls = payload.get("tool_calls")
     if isinstance(batch_calls, list):
@@ -1657,6 +1694,117 @@ def workflow_hook_snapshot(stdin_payload: str | None) -> dict[str, Any] | None:
     return {"hook": hook, "files": files}
 
 
+HOOK_TRACE_KEYS = (
+    "agent_transcript_path",
+    "agent_type",
+    "hook_event_name",
+    "is_interrupt",
+    "message",
+    "model",
+    "notification_type",
+    "permission_mode",
+    "prompt",
+    "source",
+    "title",
+    "tool_name",
+)
+HOOK_TRACE_TOOL_INPUT_KEYS = (
+    "command",
+    "description",
+    "file_path",
+    "pattern",
+    "run_in_background",
+    "subagent_type",
+)
+HOOK_TRACE_TOOL_RESPONSE_KEYS = ("status", "type")
+HOOK_TRACE_TASK_NOTIFICATION = "<task-notification>"
+
+
+def sanitized_hook_trace(
+    payloads: list[tuple[float, str]],
+    observations: list[TerminalObservation],
+) -> list[dict[str, Any]]:
+    """One line per Claude hook, title change or scripted input, ordered by
+    time. Keeps the fields the adapter reads, swaps ids for stable aliases and
+    paths for `$SESSION`, `$REPO` and `$HOME`, and drops file contents and tool
+    output, so a recording can go in the public repo as a fixture."""
+    parsed = [(timestamp, parse_json_object(raw)) for timestamp, raw in payloads]
+    aliases: dict[str, str] = {}
+    counts: Counter[str] = Counter()
+
+    def alias(prefix: str, value: Any) -> None:
+        if isinstance(value, str) and value and value not in aliases:
+            counts[prefix] += 1
+            aliases[value] = f"{prefix}-{counts[prefix]}"
+
+    roots: dict[str, str] = {}
+    for _, payload in parsed:
+        alias("session", payload.get("session_id"))
+        alias("agent", payload.get("agent_id"))
+        alias("tool", payload.get("tool_use_id"))
+        transcript = first_string(payload, ["transcript_path"]) or ""
+        if transcript.endswith(".jsonl"):
+            roots[transcript[: -len(".jsonl")]] = "$SESSION"
+        if isinstance(payload.get("cwd"), str):
+            roots[payload["cwd"]] = "$REPO"
+        if isinstance(payload.get("scratchpad_dir"), str):
+            # Claude's scratchpad: its parent also names the project, and a
+            # model may write there instead of the repo.
+            scratchpad = pathlib.Path(payload["scratchpad_dir"])
+            roots[str(scratchpad)] = "$SCRATCH"
+            roots[str(scratchpad.parent.parent)] = "$SCRATCH"
+    roots[str(pathlib.Path.home())] = "$HOME"
+    # macOS resolves /tmp, so a tool path may use either spelling of the repo.
+    for root, name in list(roots.items()):
+        if root.startswith("/private/"):
+            roots[root.removeprefix("/private")] = name
+        elif os.path.realpath(root) != root:
+            roots[os.path.realpath(root)] = name
+
+    def scrub(text: str) -> str:
+        # Longest first: a repo can sit inside the home directory.
+        for root in sorted(roots, key=len, reverse=True):
+            text = text.replace(root, roots[root])
+        for original, replacement in aliases.items():
+            text = text.replace(original, replacement)
+        return redact_pii_text(text)
+
+    def scrub_value(value: Any) -> Any:
+        return scrub(value) if isinstance(value, str) else value
+
+    lines: list[tuple[float, dict[str, Any]]] = []
+    for timestamp, payload in parsed:
+        hook = {key: scrub_value(payload[key]) for key in HOOK_TRACE_KEYS if key in payload}
+        # Claude hands a finished worker's result to the parent as a user
+        # prompt, so its text is model output.
+        if str(payload.get("prompt", "")).startswith(HOOK_TRACE_TASK_NOTIFICATION):
+            hook["prompt"] = HOOK_TRACE_TASK_NOTIFICATION
+        for key in ("session_id", "agent_id", "tool_use_id", "transcript_path", "cwd"):
+            if isinstance(payload.get(key), str):
+                hook[key] = scrub(payload[key])
+        if isinstance(payload.get("tool_input"), dict):
+            tool_input = payload["tool_input"]
+            hook["tool_input"] = {key: scrub_value(tool_input[key]) for key in HOOK_TRACE_TOOL_INPUT_KEYS if key in tool_input}
+        if isinstance(payload.get("tool_response"), dict):
+            tool_response = payload["tool_response"]
+            hook["tool_response"] = {
+                key: scrub_value(tool_response[key]) for key in HOOK_TRACE_TOOL_RESPONSE_KEYS if key in tool_response
+            }
+        lines.append((timestamp, {"hook": hook}))
+    previous_title = None
+    for observation in sorted(observations, key=lambda item: ((item.timestamp or 0), item.offset)):
+        if observation.kind == "title" and observation.text != previous_title:
+            previous_title = observation.text
+            lines.append((observation.timestamp or 0, {"title": scrub(observation.text)}))
+        elif observation.kind == "input":
+            lines.append((observation.timestamp or 0, {"input": observation.text}))
+    if not lines:
+        return []
+    start = min(timestamp for timestamp, _ in lines)
+    ordered = sorted(lines, key=lambda item: item[0])
+    return [{"t": round(timestamp - start, 2), **line} for timestamp, line in ordered]
+
+
 def missing_workflow_contract_detail(records: list[TraceRecord]) -> str | None:
     """None when the trace shows the order Zentty's workflow handling depends
     on: a SubagentStart without files or a path, then a hook from inside the
@@ -1976,7 +2124,18 @@ class TraceRecorder:
         self.run_dir.mkdir(parents=True, exist_ok=True)
         self.trace_path = self.run_dir / "trace.jsonl"
         self._records: list[TraceRecord] = []
+        self._hook_trace_payloads: dict[tuple[str | None, str], list[tuple[float, str]]] = {}
         self._lock = threading.Lock()
+
+    def append_hook_trace_payload(self, agent: str | None, scenario: str, payload: str) -> None:
+        """Keeps the raw hook in memory only; `sanitized_hook_trace` decides
+        what reaches disk."""
+        with self._lock:
+            self._hook_trace_payloads.setdefault((agent, scenario), []).append((time.time(), payload))
+
+    def hook_trace_payloads(self, agent: str | None, scenario: str) -> list[tuple[float, str]]:
+        with self._lock:
+            return list(self._hook_trace_payloads.get((agent, scenario), []))
 
     def append(self, record: TraceRecord) -> None:
         with self._lock:
@@ -2212,6 +2371,8 @@ class CaptureServer:
                 with self._workflow_trace_lock:
                     with (self.run_dir / "claude-workflow-trace.jsonl").open("a", encoding="utf-8") as trace:
                         trace.write(json.dumps(snapshot, sort_keys=True) + "\n")
+        if expectation and expectation.hook_trace and isinstance(stdin_payload, str):
+            self.recorder.append_hook_trace_payload(agent, self.scenario, stdin_payload)
         self.recorder.append(
             TraceRecord(
                 kind="hook",
@@ -3425,6 +3586,7 @@ def load_profiles(path: pathlib.Path) -> dict[str, AgentProfile]:
                 event_order=parse_event_order(profile_path.name, name, value.get("event_order")),
                 subagent_nested_required=bool(value.get("subagent_nested_required", False)),
                 workflow_contract_required=bool(value.get("workflow_contract_required", False)),
+                hook_trace=bool(value.get("hook_trace", False)),
                 resume_roundtrip=bool(value.get("resume_roundtrip", False)),
                 daemon_pane_routing=bool(value.get("daemon_pane_routing", False)),
             )
@@ -3438,6 +3600,7 @@ def load_profiles(path: pathlib.Path) -> dict[str, AgentProfile]:
             input_by_scenario={name: list(values) for name, values in raw.get("input_by_scenario", {}).items()},
             environment_by_scenario=parse_environment_by_scenario(profile_path.name, raw.get("environment_by_scenario")),
             repeat_by_scenario={name: int(count) for name, count in raw.get("repeat_by_scenario", {}).items()},
+            repo_files_by_scenario={name: dict(files) for name, files in raw.get("repo_files_by_scenario", {}).items()},
             skip_patterns=list(raw.get("skip_patterns", [])),
             tool=str(raw.get("tool") or raw["name"]),
             kimi_variant=raw.get("kimi_variant") if raw.get("kimi_variant") in ("legacy", "modern") else None,
@@ -4229,12 +4392,22 @@ class BenchRunner:
             result_kind=result_kind,
         )
 
+    def _write_hook_trace(self, result: ScenarioResult, observations: list[TerminalObservation]) -> None:
+        payloads = self.recorder.hook_trace_payloads(result.agent, result.scenario)
+        if not payloads:
+            return
+        path = self.run_dir / f"{result.agent}-{result.scenario}-hook-trace.jsonl"
+        with path.open("w", encoding="utf-8") as trace:
+            for line in sanitized_hook_trace(payloads, observations):
+                trace.write(json.dumps(line, sort_keys=True, ensure_ascii=False) + "\n")
+
     def _finalize_result(
         self,
         result: ScenarioResult,
         records: list[TraceRecord],
         observations: list[TerminalObservation],
     ) -> ScenarioResult:
+        self._write_hook_trace(result, observations)
         result.terminal_final_phase = terminal_final_phase(observations)
         result.terminal_post_scripted_input_phase = terminal_phase_after_scripted_input(result.agent, result.scenario, observations)
         result.terminal_phase_sequence = terminal_phase_sequence(observations)
@@ -4304,6 +4477,11 @@ class BenchRunner:
         repo = self.run_dir / "repos" / f"{agent}-{scenario}"
         repo.mkdir(parents=True, exist_ok=True)
         (repo / "README.md").write_text("Zentty agent bench temporary repository.\n", encoding="utf-8")
+        profile = self.profiles.get(agent)
+        for relative_path, contents in (profile.repo_files_by_scenario.get(scenario, {}) if profile else {}).items():
+            path = repo / relative_path
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(contents, encoding="utf-8")
         subprocess.run(["git", "init"], cwd=repo, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return repo
 
@@ -4359,7 +4537,7 @@ class BenchRunner:
         return pathlib.Path(values["BUILT_PRODUCTS_DIR"]) / values.get("FULL_PRODUCT_NAME", "Zentty.app")
 
     def _base_environment(self, resources_dir: pathlib.Path) -> dict[str, str]:
-        env = os.environ.copy()
+        env = without_parent_agent_session(os.environ)
         wrapper_dirs = [resources_dir / "bin" / agent for agent in SUPPORTED_AGENTS]
         wrapper_dirs = [path for path in wrapper_dirs if path.exists()]
         shared = resources_dir / "bin" / "shared"
@@ -4528,6 +4706,7 @@ def run_pty(
     # counts from there, for TUIs that ignore keys typed the instant a prompt
     # opens.
     matched_at: list[float | None] = [None] * len(inputs)
+    last_input_offset = 0
     output = bytearray()
     terminal_observations: list[TerminalObservation] = []
     seen_terminal_offsets: set[tuple[int, str]] = set()
@@ -4554,10 +4733,15 @@ def run_pty(
             for index, item in enumerate(inputs):
                 if sent[index]:
                     continue
+                after_previous = bool(item.get("after_previous"))
+                if after_previous and not all(sent[:index]):
+                    continue
                 match = item.get("match")
                 if isinstance(match, str) and match:
                     text_so_far = output.decode("utf-8", errors="replace")
-                    if not re.search(match, text_so_far, flags=re.I | re.S):
+                    # `after_previous` looks only at output since the last
+                    # input, for a dialog that repeats an earlier one's words.
+                    if not scripted_input_matches(match, text_so_far[last_input_offset:] if after_previous else text_so_far):
                         continue
                 if matched_at[index] is None:
                     matched_at[index] = now
@@ -4575,6 +4759,7 @@ def run_pty(
                         )
                     )
                     sent[index] = True
+                    last_input_offset = len(text_so_far)
             ready, _, _ = select.select([master], [], [], 0.05)
             if ready:
                 try:
@@ -4623,6 +4808,18 @@ def run_pty(
         return PtyResult(exit_code, False, text, terminal_observations=terminal_observations)
     finally:
         os.close(master)
+
+
+def scripted_input_match_text(output: str) -> str:
+    """The terminal stream as `input_by_scenario` matches see it: word gaps
+    drawn with cursor moves become spaces and other CSI sequences go, so a
+    multi-word match works on a redraw. OSC titles stay matchable."""
+    return strip_ansi_sequences(TERMINAL_CURSOR_GAP_PATTERN.sub(" ", output))
+
+
+def scripted_input_matches(pattern: str, output: str) -> bool:
+    flags = re.I | re.S
+    return bool(re.search(pattern, output, flags=flags) or re.search(pattern, scripted_input_match_text(output), flags=flags))
 
 
 def scripted_input_label(item: dict[str, Any]) -> str:

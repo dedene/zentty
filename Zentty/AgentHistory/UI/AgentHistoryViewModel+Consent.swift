@@ -123,11 +123,21 @@ extension AgentHistoryViewModel {
     }
 
     private func consentEnableDidFinish(_ outcome: AgentHistoryStateChangeOutcome) {
-        guard outcome == .refusedConfigUnreadable, body == .consent, var consent, consent.isIndexing else { return }
+        let error: String
+        switch outcome {
+        case .saved, .appliedButNotSaved:
+            return
+        case .notSaved:
+            error = AgentHistoryConsentModel.stateNotSavedError
+        case .refusedConfigUnreadable:
+            error = AgentHistoryConsentModel.configUnreadableError
+        }
+        // Nothing was turned on, so no indexer will report progress: hand the card back.
+        guard body == .consent, var consent, consent.isIndexing else { return }
         consent.isIndexing = false
         consent.overallProgress = nil
         consent.indexingStatus = nil
-        consent.saveError = AgentHistoryConsentModel.configUnreadableError
+        consent.saveError = error
         self.consent = consent
     }
 

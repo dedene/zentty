@@ -23,9 +23,46 @@ enum WindowDragSuppressionTarget: Equatable {
     case proxyIcon
 }
 
+enum WindowDragSuppressionHolder: Hashable {
+    /// The pointer rests over the proxy icon.
+    case proxyHover
+    /// The proxy icon view is handling a press the window did not arm.
+    case proxyPress
+    /// The window armed suppression from a mouse event.
+    case armedMouseEvent
+}
+
+/// Reference-counts everyone who needs the window immovable. The baseline is
+/// captured once, by the first holder, so a later holder can never mistake an
+/// earlier holder's suppression for the window's own `isMovable` state.
+struct WindowDragSuppressionLedger: Equatable {
+    private(set) var holders: Set<WindowDragSuppressionHolder> = []
+    private var baseline: Bool?
+
+    /// Returns the `isMovable` value to apply.
+    mutating func acquire(_ holder: WindowDragSuppressionHolder, currentIsMovable: Bool) -> Bool {
+        if holders.isEmpty {
+            baseline = currentIsMovable
+        }
+        holders.insert(holder)
+        return false
+    }
+
+    /// Returns the `isMovable` value to apply, or nil while suppression must stay in force.
+    mutating func release(_ holder: WindowDragSuppressionHolder) -> Bool? {
+        guard holders.remove(holder) != nil, holders.isEmpty else {
+            return nil
+        }
+        defer { baseline = nil }
+        return baseline
+    }
+}
+
 @MainActor
 protocol ProxyWindowDragSuppressionControlling: AnyObject {
     var isProxyWindowDragSuppressionActive: Bool { get }
+    func acquireWindowDragSuppression(_ holder: WindowDragSuppressionHolder)
+    func releaseWindowDragSuppression(_ holder: WindowDragSuppressionHolder)
     func restoreProxySuppression()
 }
 
@@ -35,7 +72,7 @@ private final class ProxyAwareWindow: NSWindow, ProxyWindowDragSuppressionContro
     var proxyMouseDownHandler: ((NSEvent) -> Void)?
     var isProxyWindowDragSuppressionActive: Bool { armedSuppressionTarget != nil }
 
-    private var previousMovableState: Bool?
+    private var dragSuppressionLedger = WindowDragSuppressionLedger()
     private var armedSuppressionTarget: WindowDragSuppressionTarget?
 
     override func sendEvent(_ event: NSEvent) {
@@ -62,8 +99,22 @@ private final class ProxyAwareWindow: NSWindow, ProxyWindowDragSuppressionContro
         }
     }
 
+    func acquireWindowDragSuppression(_ holder: WindowDragSuppressionHolder) {
+        applyMovableState(dragSuppressionLedger.acquire(holder, currentIsMovable: isMovable))
+    }
+
+    func releaseWindowDragSuppression(_ holder: WindowDragSuppressionHolder) {
+        applyMovableState(dragSuppressionLedger.release(holder))
+    }
+
     func restoreProxySuppression() {
         restoreWindowDraggingIfNeeded()
+    }
+
+    private func applyMovableState(_ movable: Bool?) {
+        if let movable, isMovable != movable {
+            isMovable = movable
+        }
     }
 
     private func maybeSuppressWindowDragging(for event: NSEvent) {
@@ -75,24 +126,12 @@ private final class ProxyAwareWindow: NSWindow, ProxyWindowDragSuppressionContro
         }
 
         armedSuppressionTarget = suppressionTarget
-        previousMovableState = isMovable
-        if isMovable {
-            isMovable = false
-        }
+        acquireWindowDragSuppression(.armedMouseEvent)
     }
 
     private func restoreWindowDraggingIfNeeded() {
-        defer {
-            previousMovableState = nil
-            armedSuppressionTarget = nil
-        }
-
-        guard let previousMovableState else {
-            return
-        }
-        if isMovable != previousMovableState {
-            isMovable = previousMovableState
-        }
+        armedSuppressionTarget = nil
+        releaseWindowDragSuppression(.armedMouseEvent)
     }
 
     @discardableResult
@@ -186,7 +225,8 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     private let zoomTrafficLightOverlay = InactiveTrafficLightOverlayView(identifier: "trafficLightOverlay.zoom")
     private var isApplicationActive = true
     private var isWindowKey = true
-    private var shouldBypassNextCloseConfirmation = false
+    /// Runs the app's quit decision when the last window is asked to close.
+    var requestApplicationTermination: () -> Void = { NSApp.terminate(nil) }
     var onWindowDidClose: ((MainWindowController) -> Void)?
     var onWindowAppearanceDidChange: ((NSAppearance?, ZenttyTheme) -> Void)?
     var onCheckForUpdatesRequested: (() -> Void)?
@@ -334,6 +374,9 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         rootViewController.onCloseWindowRequested = { [weak self] in
             self?.closeWindowBypassingConfirmation()
         }
+        rootViewController.onCloseWindowCommandRequested = { [weak self] in
+            self?.requestClose()
+        }
         rootViewController.runningQuickActionsClosingWithPane = { [weak self] paneID in
             guard let self else { return [] }
             return self.runningOverlayFloats(self.worklaneStore.terminalCheckedPaneIDs(closingWithPane: paneID))
@@ -395,16 +438,16 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
-        if shouldBypassNextCloseConfirmation {
-            shouldBypassNextCloseConfirmation = false
-            return true
+        // Closing the last window quits, and applicationShouldTerminate owns
+        // that confirmation. Ask it now, while this controller and its runtimes
+        // still exist: a prompt can still be cancelled, and the quit path can
+        // still save the workspace. Quitting takes the window down with it.
+        if (NSApp.delegate as? AppDelegate)?.isLastRegisteredWindow(self) == true {
+            requestApplicationTermination()
+            return false
         }
 
-        let appDelegate = NSApp.delegate as? AppDelegate
-        let isLastWindow = (appDelegate?.windowControllerCount ?? 1) <= 1
-        // When this is the last window, applicationShouldTerminate handles confirmation — skip here to avoid double-prompt.
-        guard !isLastWindow,
-              configStore.current.confirmations.confirmBeforeClosingWindow,
+        guard configStore.current.confirmations.confirmBeforeClosingWindow,
               anyPaneRequiresQuitConfirmation else {
             return true
         }
@@ -419,12 +462,32 @@ final class MainWindowController: NSObject, NSWindowDelegate {
 
         alert.beginSheetModal(for: window) { [weak self] response in
             guard let self, response == .alertFirstButtonReturn else { return }
-            self.closeWindowBypassingConfirmation()
+            self.finishConfirmedClose()
         }
         return false
     }
 
+    /// The other windows can go while this sheet is open. A window that is the
+    /// last one by now quits instead, as `windowShouldClose` would have had it
+    /// from the start, so the final save still finds this controller. Shell
+    /// exits close the window directly and keep their own final-save policy.
+    private func finishConfirmedClose() {
+        guard let appDelegate = NSApp.delegate as? AppDelegate,
+              appDelegate.isLastRegisteredWindow(self) else {
+            closeWindowBypassingConfirmation()
+            return
+        }
+        appDelegate.acceptNextQuitWithoutPrompt()
+        requestApplicationTermination()
+    }
+
     func windowWillClose(_ notification: Notification) {
+        // A window that closes with a sheet attached never runs its completion:
+        // a shell exit under the quit sheet would leave AppKit in terminateLater
+        // for good. Decline them while the panes they ask about still exist.
+        for sheet in window.sheets {
+            window.endSheet(sheet, returnCode: .cancel)
+        }
         rootViewController.cancelAllRemoteImageUploads()
         runtimeRegistry.destroyAll()
         onWindowDidClose?(self)
@@ -1015,6 +1078,14 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         rootViewController.showToast(message: message)
     }
 
+    func showToast(message: String, duration: TimeInterval) {
+        rootViewController.showToast(message: message, duration: duration)
+    }
+
+    func showFailureToast(message: String, staysFor displayDuration: TimeInterval) {
+        rootViewController.showFailureToast(message: message, staysFor: displayDuration)
+    }
+
     @objc
     func movePaneToWorklane(_ sender: Any?) {
         guard let item = sender as? NSMenuItem,
@@ -1540,8 +1611,16 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         runtimeRegistry.destroyAll()
     }
 
+    /// Closes through the same confirmation as the title bar button. A plain
+    /// `performClose` would beep whenever the confirmation holds the close back.
+    func requestClose() {
+        guard window.attachedSheet == nil else { return }
+        if windowShouldClose(window) {
+            window.close()
+        }
+    }
+
     func closeWindowBypassingConfirmation() {
-        shouldBypassNextCloseConfirmation = true
         window.close()
     }
 

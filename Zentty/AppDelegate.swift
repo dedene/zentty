@@ -7,6 +7,10 @@ import UserNotifications
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private enum RestoreSnapshot {
         static let debounceNanoseconds: UInt64 = 350_000_000
+        static let setAsideToastMessage = "Couldn’t reopen your workspace. It was set aside."
+        static let setAsideFailedToastMessage = "Couldn’t reopen your workspace. It’s still saved."
+        /// Nothing else tells the user their workspace didn't come back.
+        static let setAsideToastDuration: TimeInterval = 6
     }
 
     private static let logger = Logger(subsystem: "be.zenjoy.zentty", category: "SessionRestore")
@@ -24,8 +28,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard configStore.fileURL == AppConfigStore.defaultFileURL(homeDirectoryURL: home) else {
             return configStore.fileURL.deletingLastPathComponent()
         }
-        return ZenttyBuildFlavor.current.stateDirectoryURL(homeDirectoryURL: home)
+        return RuntimeStateRelocation.restoreStoreDirectory(
+            from: ZenttyBuildFlavor.current.configDirectoryURL(homeDirectoryURL: home),
+            to: ZenttyBuildFlavor.current.stateDirectoryURL(homeDirectoryURL: home)
+        )
     }
+
+    /// How the quit sheet's answer reaches AppKit, which sits in `.terminateLater`
+    /// until it does.
+    var replyToQuitPrompt: (Bool) -> Void = { NSApp.reply(toApplicationShouldTerminate: $0) }
+
+    private enum QuitConfirmation {
+        case required
+        case alreadyGiven
+    }
+
+    /// Spent by the next `applicationShouldTerminate`, whatever it decides.
+    private var quitConfirmation = QuitConfirmation.required
 
     private let shouldOpenMainWindow: Bool
     private let configStore: AppConfigStore
@@ -170,31 +189,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         guard shouldOpenMainWindow else { return }
 
+        var launchAction = SessionRestoreStore.LaunchAction.startFresh
         if isSessionRestoreEnabled {
             configureSessionScrollback()
-            let launchDecision: SessionRestoreStore.LaunchDecision?
+            sessionRestoreStore.observeDeferredSetAside { [weak self] snapshotURL in
+                Task { @MainActor in self?.announceSetAsideSnapshot(at: snapshotURL) }
+            }
+            var launchDecision: SessionRestoreStore.LaunchDecision?
             do {
-                launchDecision = try sessionRestoreStore.prepareForLaunch(
+                launchAction = try sessionRestoreStore.beginLaunch(
                     restorePreferenceEnabled: configStore.current.restore.restoreWorkspaceOnLaunch
                 )
-                if let launchDecision {
+                if case .restore(let decision) = launchAction {
+                    launchDecision = decision
                     ZenttyBreadcrumbs.record(
                         category: "zentty.launch.restore",
                         message: "prepared",
                         data: [
-                            "windowCount": launchDecision.envelope.workspace.windows.count,
+                            "windowCount": decision.envelope.workspace.windows.count,
                         ]
                     )
                 }
             } catch {
                 reportRestoreError("Failed to prepare restore launch", error: error)
-                launchDecision = nil
-            }
-
-            do {
-                try sessionRestoreStore.markLaunchStarted()
-            } catch {
-                reportRestoreError("Failed to mark restore launch as started", error: error)
             }
 
             if let launchDecision, launchWorkspace(launchDecision.envelope) {
@@ -206,11 +223,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         "success": true,
                     ]
                 )
-                do {
-                    try sessionRestoreStore.consumeSnapshot()
-                } catch {
-                    reportRestoreError("Failed to consume restore snapshot after successful launch", error: error)
-                }
             } else {
                 if launchDecision != nil {
                     ZenttyBreadcrumbs.record(
@@ -238,6 +250,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let externalDirectories = pendingExternalOpenDirectories
         pendingExternalOpenDirectories = []
         openWindows(atDirectories: externalDirectories)
+        switch launchAction {
+        case .startFresh, .restore:
+            break
+        case .setAside(let snapshotURL):
+            announceSetAsideSnapshot(at: snapshotURL)
+        case .setAsideFailed:
+            announceFailedSetAside()
+        }
 
         if !Self.isHostedTestMode {
             NSApp.activate(ignoringOtherApps: true)
@@ -245,6 +265,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if isSessionRestoreEnabled {
             scheduleWorkspaceSnapshotSave()
         }
+    }
+
+    /// The toast is one line, so the path goes to the log. It lands in the
+    /// newest window, which is the one in front after a launch.
+    private func announceSetAsideSnapshot(at snapshotURL: URL) {
+        ZenttyBreadcrumbs.record(
+            category: "zentty.launch.restore",
+            message: "set aside",
+            data: ["success": false]
+        )
+        reportRestoreError("Set restore snapshot aside after repeated incomplete launches: \(snapshotURL.path)")
+        orderedWindowControllers.last?.showFailureToast(
+            message: RestoreSnapshot.setAsideToastMessage,
+            staysFor: RestoreSnapshot.setAsideToastDuration
+        )
+    }
+
+    /// The snapshot stays where it is, and every save tries the rename again.
+    private func announceFailedSetAside() {
+        ZenttyBreadcrumbs.record(
+            category: "zentty.launch.restore",
+            message: "set aside failed",
+            data: ["success": false]
+        )
+        reportRestoreError("Could not set restore snapshot aside; keeping it until the rename works")
+        orderedWindowControllers.last?.showFailureToast(
+            message: RestoreSnapshot.setAsideFailedToastMessage,
+            staysFor: RestoreSnapshot.setAsideToastDuration
+        )
     }
 
     /// The home-directory window a launch opens when nothing was restored.
@@ -388,7 +437,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard configStore.current.confirmations.confirmBeforeQuitting,
+        let confirmation = quitConfirmation
+        quitConfirmation = .required
+        guard confirmation == .required,
+              configStore.current.confirmations.confirmBeforeQuitting,
               let blockingController = windowControllers.values.first(where: \.anyPaneRequiresQuitConfirmation)
         else {
             return .terminateNow
@@ -427,7 +479,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 if response == .alertFirstButtonReturn {
                     self?.persistRestorePreferenceIfNeeded(from: restoreToggle)
                 }
-                NSApp.reply(toApplicationShouldTerminate: response == .alertFirstButtonReturn)
+                self?.replyToQuitPrompt(response == .alertFirstButtonReturn)
             }
             return .terminateLater
         }
@@ -439,6 +491,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         return .terminateCancel
+    }
+
+    /// The person already agreed to end the last window's panes in its Close
+    /// Window sheet, so the quit that follows must not ask a second time.
+    func acceptNextQuitWithoutPrompt() {
+        quitConfirmation = .alreadyGiven
     }
 
     /// True when quit was requested by another process (osascript, brew, etc.), not Cmd+Q/menu.
@@ -699,7 +757,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         notificationStore.resolveAll(windowID: controller.windowID)
         applyAuxiliaryWindowTheme()
         if windowControllers.isEmpty {
-            NSApp.terminate(nil)
+            controller.requestApplicationTermination()
         } else {
             syncMenuBarStatusSources()
             scheduleWorkspaceSnapshotSave()
@@ -844,6 +902,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func configureSessionScrollback() {
+        let restoreStore = sessionRestoreStore
+        sessionScrollback.preservedFileNamesProvider = { restoreStore.setAsideScrollbackFileNames() }
         sessionScrollback.sourcesProvider = { [weak self] in
             self?.orderedWindowControllers.map { controller in
                 let store = controller.worklaneStore
@@ -1260,6 +1320,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     var windowControllerCount: Int {
         windowControllers.count
+    }
+
+    func isLastRegisteredWindow(_ controller: MainWindowController) -> Bool {
+        windowControllers.count == 1 && windowControllers[ObjectIdentifier(controller)] != nil
     }
 
     #if DEBUG

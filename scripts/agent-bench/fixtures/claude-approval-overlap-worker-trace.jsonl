@@ -1,0 +1,28 @@
+{"t": 0.0, "title": "✳ Claude Code"}
+{"hook": {"cwd": "$REPO", "hook_event_name": "SessionStart", "model": "claude-haiku-5-5", "session_id": "session-1", "source": "startup", "transcript_path": "$SESSION.jsonl"}, "t": 0.06}
+{"hook": {"cwd": "$REPO", "hook_event_name": "UserPromptSubmit", "permission_mode": "default", "prompt": "For an integration hook regression test: 1) use the Agent tool exactly once, with subagent_type general-purpose and run_in_background true, and give it this exact task: \"Run the Bash tool once with the command: touch ZENTTY_AGENT_BENCH_WORKER_OK. Then reply done.\" 2) As soon as the Agent call returns, create a file named ZENTTY_AGENT_BENCH_APPROVAL_OK in the current directory using the Write tool with the text ZENTTY_AGENT_BENCH_APPROVAL_OK. 3) Then reply with exactly DONE.", "session_id": "session-1", "transcript_path": "$SESSION.jsonl"}, "t": 0.13}
+{"t": 0.13, "title": "◐ Claude Code"}
+{"t": 1.03, "title": "◐ Agent hook regression test"}
+{"t": 1.03, "title": "◑ Agent hook regression test"}
+{"t": 2.0, "title": "◐ Agent hook regression test"}
+{"hook": {"agent_id": "agent-1", "agent_type": "general-purpose", "cwd": "$REPO", "hook_event_name": "SubagentStart", "session_id": "session-1", "transcript_path": "$SESSION.jsonl"}, "t": 2.63}
+{"hook": {"cwd": "$REPO", "hook_event_name": "PostToolUse", "permission_mode": "default", "session_id": "session-1", "tool_input": {"description": "Touch worker marker file", "subagent_type": "general-purpose"}, "tool_name": "Agent", "tool_response": {"status": "async_launched"}, "tool_use_id": "tool-1", "transcript_path": "$SESSION.jsonl"}, "t": 2.63}
+{"t": 2.96, "title": "◑ Agent hook regression test"}
+{"t": 3.92, "title": "◐ Agent hook regression test"}
+{"hook": {"cwd": "$REPO", "hook_event_name": "PreToolUse", "permission_mode": "default", "session_id": "session-1", "tool_input": {"file_path": "$SCRATCH/ZENTTY_AGENT_BENCH_APPROVAL_OK"}, "tool_name": "Write", "tool_use_id": "tool-2", "transcript_path": "$SESSION.jsonl"}, "t": 4.28}
+{"t": 4.29, "title": "✳ Agent hook regression test"}
+{"hook": {"cwd": "$REPO", "hook_event_name": "PermissionRequest", "permission_mode": "default", "session_id": "session-1", "tool_input": {"file_path": "$SCRATCH/ZENTTY_AGENT_BENCH_APPROVAL_OK"}, "tool_name": "Write", "transcript_path": "$SESSION.jsonl"}, "t": 4.31}
+{"hook": {"agent_id": "agent-1", "agent_type": "general-purpose", "cwd": "$REPO", "hook_event_name": "PreToolUse", "permission_mode": "default", "session_id": "session-1", "tool_input": {"command": "touch ZENTTY_AGENT_BENCH_WORKER_OK", "description": "Create file ZENTTY_AGENT_BENCH_WORKER_OK"}, "tool_name": "Bash", "tool_use_id": "tool-3", "transcript_path": "$SESSION.jsonl"}, "t": 4.52}
+{"hook": {"agent_id": "agent-1", "agent_type": "general-purpose", "cwd": "$REPO", "hook_event_name": "PermissionRequest", "permission_mode": "default", "session_id": "session-1", "tool_input": {"command": "touch ZENTTY_AGENT_BENCH_WORKER_OK", "description": "Create file ZENTTY_AGENT_BENCH_WORKER_OK"}, "tool_name": "Bash", "transcript_path": "$SESSION.jsonl"}, "t": 4.54}
+{"hook": {"cwd": "$REPO", "hook_event_name": "Notification", "message": "Claude needs your permission", "notification_type": "permission_prompt", "session_id": "session-1", "transcript_path": "$SESSION.jsonl"}, "t": 10.31}
+{"hook": {"cwd": "$REPO", "hook_event_name": "Notification", "message": "Claude needs your permission", "notification_type": "permission_prompt", "session_id": "session-1", "transcript_path": "$SESSION.jsonl"}, "t": 10.56}
+{"input": "approve-first", "t": 14.35}
+{"hook": {"cwd": "$REPO", "hook_event_name": "PostToolUse", "permission_mode": "default", "session_id": "session-1", "tool_input": {"file_path": "$SCRATCH/ZENTTY_AGENT_BENCH_APPROVAL_OK"}, "tool_name": "Write", "tool_response": {"type": "create"}, "tool_use_id": "tool-2", "transcript_path": "$SESSION.jsonl"}, "t": 14.39}
+{"hook": {"cwd": "$REPO", "hook_event_name": "Stop", "permission_mode": "default", "session_id": "session-1", "transcript_path": "$SESSION.jsonl"}, "t": 15.5}
+{"hook": {"agent_id": "agent-2", "agent_transcript_path": "$SESSION/subagents/agent-agent-2.jsonl", "agent_type": "", "cwd": "$REPO", "hook_event_name": "SubagentStop", "permission_mode": "default", "session_id": "session-1", "transcript_path": "$SESSION.jsonl"}, "t": 17.02}
+{"input": "approve-second", "t": 24.4}
+{"t": 24.41, "title": "◐ Agent hook regression test"}
+{"hook": {"agent_id": "agent-1", "agent_type": "general-purpose", "cwd": "$REPO", "hook_event_name": "PostToolUse", "permission_mode": "default", "session_id": "session-1", "tool_input": {"command": "touch ZENTTY_AGENT_BENCH_WORKER_OK", "description": "Create file ZENTTY_AGENT_BENCH_WORKER_OK"}, "tool_name": "Bash", "tool_response": {}, "tool_use_id": "tool-3", "transcript_path": "$SESSION.jsonl"}, "t": 24.62}
+{"t": 25.37, "title": "◑ Agent hook regression test"}
+{"hook": {"agent_id": "agent-1", "agent_transcript_path": "$SESSION/subagents/agent-agent-1.jsonl", "agent_type": "general-purpose", "cwd": "$REPO", "hook_event_name": "SubagentStop", "permission_mode": "default", "session_id": "session-1", "transcript_path": "$SESSION.jsonl"}, "t": 26.21}
+{"t": 26.23, "title": "✳ Agent hook regression test"}

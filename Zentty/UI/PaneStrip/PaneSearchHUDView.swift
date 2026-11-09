@@ -72,6 +72,14 @@ final class PaneSearchHUDView: NSView {
         }
     }
 
+    var ownsFirstResponder: Bool {
+        guard let window, let editor = queryField.currentEditor() else {
+            return false
+        }
+
+        return window.firstResponder === editor
+    }
+
     func frame(for corner: PaneSearchHUDCorner, in bounds: CGRect) -> CGRect {
         let originX: CGFloat
         let originY: CGFloat

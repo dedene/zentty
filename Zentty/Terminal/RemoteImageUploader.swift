@@ -200,6 +200,9 @@ struct RemoteImageUploader: Sendable {
         } catch is CancellationError {
             process.terminate()
             process.closeStandardInput()
+            if timeoutState.timedOut {
+                throw RemoteImageUploadError.timeout
+            }
             throw CancellationError()
         } catch {
             process.closeStandardInput()
@@ -386,9 +389,24 @@ struct RemoteImageUploader: Sendable {
 }
 
 private final class ProcessRemoteImageUploadProcess: RemoteImageUploadProcess, @unchecked Sendable {
+    /// How long to wait for stderr to reach EOF once the process has exited. A
+    /// background child, such as an ssh control master, can hold it open.
+    private static let stderrDrainTimeout: TimeInterval = 0.5
+
+    /// A task cancelled before its operation starts terminates first, and
+    /// Foundation raises if an unlaunched Process is signalled.
+    private enum LaunchState {
+        case notLaunched
+        case running
+        case cancelled
+    }
+
+    private let launchLock = NSLock()
+    private var launchState = LaunchState.notLaunched
     private let process = Process()
     private let inputPipe = Pipe()
     private let stderrPipe = Pipe()
+    private let stderrCollector = StandardErrorCollector()
 
     init(executableURL: URL, arguments: [String]) {
         process.executableURL = executableURL
@@ -398,7 +416,14 @@ private final class ProcessRemoteImageUploadProcess: RemoteImageUploadProcess, @
     }
 
     func run() throws {
-        try process.run()
+        try launchLock.withLock {
+            guard launchState != .cancelled else {
+                throw CancellationError()
+            }
+            try process.run()
+            launchState = .running
+        }
+        stderrCollector.start(reading: stderrPipe.fileHandleForReading)
     }
 
     func write(_ data: Data) throws {
@@ -423,7 +448,10 @@ private final class ProcessRemoteImageUploadProcess: RemoteImageUploadProcess, @
         process.waitUntilExit()
         timeoutWorkItem.cancel()
 
-        let stderrData = (try? stderrPipe.fileHandleForReading.readToEnd()) ?? Data()
+        let stderrData = stderrCollector.finish(
+            reading: stderrPipe.fileHandleForReading,
+            timeout: Self.stderrDrainTimeout
+        )
         return RemoteImageUploadProcessResult(
             exitStatus: process.terminationStatus,
             stderr: String(data: stderrData, encoding: .utf8) ?? "",
@@ -432,7 +460,40 @@ private final class ProcessRemoteImageUploadProcess: RemoteImageUploadProcess, @
     }
 
     func terminate() {
-        process.terminate()
+        launchLock.withLock {
+            if launchState == .running {
+                process.terminate()
+            } else {
+                launchState = .cancelled
+            }
+        }
+    }
+}
+
+/// Reads stderr while the process runs. Reading only after exit would leave a
+/// child that fills the pipe buffer blocked on its write, unable to exit.
+private final class StandardErrorCollector: @unchecked Sendable {
+    private let lock = NSLock()
+    private var data = Data()
+    private let reachedEndOfFile = DispatchSemaphore(value: 0)
+
+    func start(reading handle: FileHandle) {
+        handle.readabilityHandler = { [self] handle in
+            let chunk = handle.availableData
+            guard !chunk.isEmpty else {
+                handle.readabilityHandler = nil
+                reachedEndOfFile.signal()
+                return
+            }
+            lock.withLock { data.append(chunk) }
+        }
+    }
+
+    /// Returns what was read, waiting at most `timeout` for the rest.
+    func finish(reading handle: FileHandle, timeout: TimeInterval) -> Data {
+        _ = reachedEndOfFile.wait(timeout: .now() + timeout)
+        handle.readabilityHandler = nil
+        return lock.withLock { data }
     }
 }
 

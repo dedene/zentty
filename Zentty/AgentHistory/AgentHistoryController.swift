@@ -54,6 +54,10 @@ final class AgentHistoryController: Sendable {
     private var indexerGeneration: UInt64 = 0
     /// Bumped by every user-driven state change, so a slower launch read never overrides it.
     private var stateChangeSequence: UInt64 = 0
+    /// Bumped by `disable`, so a state write queued before it never applies behind it: applying
+    /// one would start an indexer that recreates the index a delete just removed. Nothing is
+    /// lost, because `disable`'s own delivery carries `store.current`, which holds that write.
+    private var disableGeneration: UInt64 = 0
     private(set) var isLaunchStartScheduled = false
     private var statusObservers: [UUID: StatusObserver] = [:]
     private var snapshotObservers: [UUID: SnapshotObserver] = [:]
@@ -254,6 +258,7 @@ final class AgentHistoryController: Sendable {
             return
         }
         stateChangeSequence &+= 1
+        disableGeneration &+= 1
         let indexer = detachIndexer()
         let deliver = AgentHistoryMainDelivery<(AgentHistoryLoadedState, AgentHistoryDisableOutcome)> {
             [weak self] loaded, outcome in
@@ -284,8 +289,12 @@ final class AgentHistoryController: Sendable {
         indexer?.restoreAllRemovedSessions()
     }
 
-    func removeSession(_ key: AgentHistorySessionKey) {
-        indexer?.removeSession(key)
+    func removeSession(_ key: AgentHistorySessionKey, completion: @escaping @MainActor (Bool) -> Void) {
+        guard let indexer else {
+            completion(false)
+            return
+        }
+        indexer.removeSession(key, completion: completion)
     }
 
     /// Counts one open on the indexer's queue; dropped while the indexer is off.
@@ -366,9 +375,12 @@ final class AgentHistoryController: Sendable {
             return
         }
         stateChangeSequence &+= 1
+        let disableGeneration = self.disableGeneration
         let deliver = AgentHistoryMainDelivery<(AgentHistoryLoadedState, AgentHistoryStateChangeOutcome)> {
             [weak self] loaded, outcome in
-            self?.applyState(loaded)
+            if let self, disableGeneration == self.disableGeneration {
+                self.applyState(loaded)
+            }
             completion?(outcome)
         }
         withStateStore { store in

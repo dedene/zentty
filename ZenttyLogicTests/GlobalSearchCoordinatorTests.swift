@@ -353,6 +353,93 @@ final class GlobalSearchCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.state, GlobalSearchState())
     }
 
+    func test_held_cross_target_completion_is_dropped_after_query_change() {
+        let paneID1 = PaneID("pane-1")
+        let paneID2 = PaneID("pane-2")
+        let runtime1 = makeRuntime(paneID: paneID1)
+        let runtime2 = makeRuntime(paneID: paneID2)
+        var heldCompletion: (@MainActor () -> Void)?
+        let coordinator = makeCoordinator(
+            targets: [
+                GlobalSearchTarget(worklaneID: WorklaneID("worklane-1"), paneID: paneID1),
+                GlobalSearchTarget(worklaneID: WorklaneID("worklane-2"), paneID: paneID2),
+            ],
+            runtimes: [paneID1: runtime1.runtime, paneID2: runtime2.runtime],
+            navigateToTarget: { _, _, completion in heldCompletion = completion },
+            endAllLocalSearches: {}
+        )
+        coordinator.updateQuery("alpha")
+        coordinator.handleSearchEvent(for: paneID1, event: .total(1))
+        coordinator.handleSearchEvent(for: paneID2, event: .total(1))
+        coordinator.findNext()
+        XCTAssertNotNil(heldCompletion)
+
+        coordinator.updateQuery("beta")
+        coordinator.handleSearchEvent(for: paneID1, event: .total(4))
+        coordinator.handleSearchEvent(for: paneID2, event: .total(4))
+        let actionsBeforeCompletion = runtime1.adapter.bindingActions
+        heldCompletion?()
+
+        XCTAssertEqual(coordinator.state.selected, -1)
+        XCTAssertEqual(runtime1.adapter.bindingActions, actionsBeforeCompletion)
+    }
+
+    func test_held_same_pane_navigation_is_dropped_after_query_change() {
+        let paneID1 = PaneID("pane-1")
+        let paneID2 = PaneID("pane-2")
+        let runtime1 = makeRuntime(paneID: paneID1)
+        let runtime2 = makeRuntime(paneID: paneID2)
+        let target1 = GlobalSearchTarget(worklaneID: WorklaneID("worklane-1"), paneID: paneID1)
+        let target2 = GlobalSearchTarget(worklaneID: WorklaneID("worklane-2"), paneID: paneID2)
+        var heldCompletion: (@MainActor () -> Void)?
+        let coordinator = makeCoordinator(
+            targets: [target1, target2],
+            currentTargetProvider: { target2 },
+            runtimes: [paneID1: runtime1.runtime, paneID2: runtime2.runtime],
+            navigateToTarget: { _, _, completion in heldCompletion = completion },
+            endAllLocalSearches: {}
+        )
+        coordinator.updateQuery("alpha")
+        coordinator.handleSearchEvent(for: paneID1, event: .total(2))
+        coordinator.handleSearchEvent(for: paneID2, event: .total(0))
+        coordinator.handleSearchEvent(for: paneID1, event: .selected(0))
+        coordinator.findNext()
+        XCTAssertNotNil(heldCompletion, "The user is on another pane, so the step waits for navigation")
+
+        coordinator.updateQuery("beta")
+        let actionsBeforeCompletion = runtime1.adapter.bindingActions
+        heldCompletion?()
+
+        XCTAssertEqual(runtime1.adapter.bindingActions, actionsBeforeCompletion)
+    }
+
+    func test_held_navigation_survives_a_new_total_for_the_same_query() {
+        let paneID1 = PaneID("pane-1")
+        let paneID2 = PaneID("pane-2")
+        let runtime1 = makeRuntime(paneID: paneID1)
+        let runtime2 = makeRuntime(paneID: paneID2)
+        var heldCompletion: (@MainActor () -> Void)?
+        let coordinator = makeCoordinator(
+            targets: [
+                GlobalSearchTarget(worklaneID: WorklaneID("worklane-1"), paneID: paneID1),
+                GlobalSearchTarget(worklaneID: WorklaneID("worklane-2"), paneID: paneID2),
+            ],
+            runtimes: [paneID1: runtime1.runtime, paneID2: runtime2.runtime],
+            navigateToTarget: { _, _, completion in heldCompletion = completion },
+            endAllLocalSearches: {}
+        )
+        coordinator.updateQuery("alpha")
+        coordinator.handleSearchEvent(for: paneID1, event: .total(1))
+        coordinator.handleSearchEvent(for: paneID2, event: .total(1))
+        coordinator.findNext()
+
+        coordinator.handleSearchEvent(for: paneID2, event: .total(2))
+        heldCompletion?()
+
+        XCTAssertEqual(coordinator.state.selected, 0)
+        XCTAssertEqual(runtime1.adapter.bindingActions.last, "navigate_search:next")
+    }
+
     private func makeCoordinator(
         targets: [GlobalSearchTarget],
         currentTargetProvider: @escaping () -> GlobalSearchTarget? = { nil },

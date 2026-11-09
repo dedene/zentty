@@ -3334,6 +3334,47 @@ final class PaneStripViewTests: AppKitTestCase {
     }
 
     @MainActor
+    func test_external_focus_change_keeps_hover_suppressed_after_programmatic_terminal_focus() throws {
+        let factory = TerminalAdapterFactorySpy()
+        let paneStripView = PaneStripView(
+            frame: NSRect(x: 0, y: 0, width: 980, height: 680),
+            runtimeRegistry: PaneRuntimeRegistry(adapterFactory: factory.makeAdapter)
+        )
+        addTeardownBlock {
+            MainActor.assumeIsolated {
+                paneStripView.prepareForTestingTearDown()
+            }
+        }
+        hostInVisibleWindow(paneStripView)
+        paneStripView.hoverFocusWindowIsKeyForTesting = true
+        paneStripView.hoverFocusPressedMouseButtonsForTesting = 0
+        paneStripView.hoverFocusMouseLocationForTesting = .zero
+        paneStripView.render(
+            makeScrollTestState(focusedPaneID: PaneID("editor")),
+            focusFollowsMouseEnabled: true,
+            focusFollowsMouseDelay: .immediate
+        )
+        paneStripView.layoutSubtreeIfNeeded()
+        factory.adapters.forEach { $0.terminalView.reportsResponderChanges = true }
+
+        var selectedPaneIDs: [PaneID] = []
+        paneStripView.onPaneSelected = { selectedPaneIDs.append($0) }
+
+        paneStripView.render(
+            makeScrollTestState(focusedPaneID: PaneID("tests")),
+            focusFollowsMouseEnabled: true,
+            focusFollowsMouseDelay: .immediate
+        )
+        paneStripView.layoutSubtreeIfNeeded()
+        let testsAdapter = try XCTUnwrap(factory.adapter(for: PaneID("tests")))
+        XCTAssertTrue(testsAdapter.terminalView.window?.firstResponder === testsAdapter.terminalView)
+
+        paneStripView.simulatePaneHoverEnteredForTesting(PaneID("editor"))
+
+        XCTAssertTrue(selectedPaneIDs.isEmpty)
+    }
+
+    @MainActor
     func test_same_location_pointer_movement_does_not_reclaim_focus_after_horizontal_scroll_focus() throws {
         let paneStripView = makePaneStripView(width: 980)
         hostInVisibleWindow(paneStripView)
@@ -4661,6 +4702,525 @@ final class PaneStripViewTests: AppKitTestCase {
         XCTAssertTrue(paneStripView.isZoomedOut)
     }
 
+    // MARK: - Drag finishing
+
+    @MainActor
+    private func beginThreePaneDrag(
+        in paneStripView: PaneStripView
+    ) throws -> (state: PaneStripState, cursor: CGPoint) {
+        paneStripView.dragOverlayView = paneStripView
+        let state = PaneStripState(
+            panes: [makePane("alpha"), makePane("beta"), makePane("gamma")],
+            focusedPaneID: PaneID("alpha")
+        )
+        paneStripView.render(state, animated: false)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        let alphaPane = try XCTUnwrap(
+            paneStripView.descendantPaneViews().first(where: { $0.paneID == PaneID("alpha") })
+        )
+        let cursor = paneStripView.convert(
+            CGPoint(x: alphaPane.frame.midX, y: alphaPane.frame.maxY - (PaneContainerView.dragZoneHeight / 2)),
+            from: alphaPane.superview
+        )
+        paneStripView.beginPaneDragForTesting(paneID: PaneID("alpha"), cursorInStrip: cursor)
+        return (state, cursor)
+    }
+
+    @MainActor
+    private func dragInactiveExpectation(for paneStripView: PaneStripView) -> XCTestExpectation {
+        let inactive = expectation(description: "drag reported inactive")
+        inactive.assertForOverFulfill = false
+        paneStripView.onDragActiveChanged = { active in
+            if !active { inactive.fulfill() }
+        }
+        return inactive
+    }
+
+    @MainActor
+    private func pumpMainQueue(for delay: TimeInterval) {
+        let elapsed = expectation(description: "main queue pumped")
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { elapsed.fulfill() }
+        wait(for: [elapsed], timeout: delay + 5)
+    }
+
+    @MainActor
+    func test_mouse_up_after_cancel_does_not_commit_drop() throws {
+        let paneStripView = makePaneStripView(width: 1200, height: 720)
+        let window = hostInVisibleWindow(paneStripView)
+        defer { window.contentView = NSView() }
+        let (_, cursor) = try beginThreePaneDrag(in: paneStripView)
+
+        var outcomes: [PaneDragOutcome] = []
+        paneStripView.onPaneDragOutcome = { outcomes.append($0) }
+        let inactive = dragInactiveExpectation(for: paneStripView)
+
+        let gapCursor = CGPoint(x: cursor.x + 40, y: cursor.y)
+        paneStripView.movePaneDragForTesting(cursorInStrip: gapCursor)
+        paneStripView.cancelPaneDragForTesting()
+        paneStripView.endPaneDragForTesting(cursorInStrip: gapCursor)
+
+        wait(for: [inactive], timeout: 5)
+        XCTAssertTrue(outcomes.isEmpty, "Esc cancelled this drag; the late mouse-up must not commit it")
+    }
+
+    @MainActor
+    func test_double_cancel_reports_drag_inactive_once() throws {
+        let paneStripView = makePaneStripView(width: 1200, height: 720)
+        let window = hostInVisibleWindow(paneStripView)
+        defer { window.contentView = NSView() }
+        _ = try beginThreePaneDrag(in: paneStripView)
+
+        var inactiveReports = 0
+        let inactive = expectation(description: "drag reported inactive")
+        inactive.assertForOverFulfill = false
+        paneStripView.onDragActiveChanged = { active in
+            guard !active else { return }
+            inactiveReports += 1
+            inactive.fulfill()
+        }
+
+        paneStripView.cancelPaneDragForTesting()
+        paneStripView.cancelPaneDragForTesting()
+
+        wait(for: [inactive], timeout: 5)
+        pumpMainQueue(for: 1)
+        XCTAssertEqual(inactiveReports, 1)
+    }
+
+    @MainActor
+    func test_cancel_completion_surviving_teardown_does_not_end_later_drag() throws {
+        let paneStripView = makePaneStripView(width: 1200, height: 720)
+        let window = hostInVisibleWindow(paneStripView)
+        defer { window.contentView = NSView() }
+        let (_, cursor) = try beginThreePaneDrag(in: paneStripView)
+
+        paneStripView.cancelPaneDragForTesting()
+        paneStripView.prepareForTestingTearDown()
+        XCTAssertFalse(paneStripView.isDragActive)
+
+        paneStripView.beginPaneDragForTesting(paneID: PaneID("alpha"), cursorInStrip: cursor)
+        XCTAssertTrue(paneStripView.isDragActive)
+
+        pumpMainQueue(for: 1)
+        XCTAssertTrue(
+            paneStripView.isDragActive,
+            "the first drag's spring completion must not tear down the second drag"
+        )
+    }
+
+    @MainActor
+    func test_refused_internal_drop_finishes_settle_without_render() throws {
+        let paneStripView = makePaneStripView(width: 1200, height: 720)
+        let window = hostInVisibleWindow(paneStripView)
+        defer { window.contentView = NSView() }
+        let (_, cursor) = try beginThreePaneDrag(in: paneStripView)
+
+        paneStripView.onPaneDragOutcome = { _ in }
+        let inactive = dragInactiveExpectation(for: paneStripView)
+
+        paneStripView.endPaneDragForTesting(cursorInStrip: cursor)
+
+        XCTAssertFalse(paneStripView.isDropSettling, "no render will come, so nothing may wait for one")
+        wait(for: [inactive], timeout: 5)
+        XCTAssertFalse(paneStripView.isDragActive)
+        XCTAssertFalse(paneStripView.isDropSettling)
+    }
+
+    @MainActor
+    func test_rendered_internal_drop_settles_through_the_reveal() throws {
+        let paneStripView = makePaneStripView(width: 1200, height: 720)
+        let window = hostInVisibleWindow(paneStripView)
+        defer { window.contentView = NSView() }
+        let (_, cursor) = try beginThreePaneDrag(in: paneStripView)
+
+        let reordered = PaneStripState(
+            panes: [makePane("beta"), makePane("alpha"), makePane("gamma")],
+            focusedPaneID: PaneID("alpha")
+        )
+        paneStripView.onPaneDragOutcome = { _ in
+            paneStripView.render(reordered, animated: true)
+        }
+        let inactive = dragInactiveExpectation(for: paneStripView)
+
+        paneStripView.endPaneDragForTesting(cursorInStrip: cursor)
+
+        XCTAssertTrue(paneStripView.isDropSettling, "a synchronous render is not a refusal")
+        XCTAssertTrue(paneStripView.isDragActive)
+        wait(for: [inactive], timeout: 5)
+        XCTAssertFalse(paneStripView.isDropSettling)
+    }
+
+    // MARK: - Superseded animated renders
+
+    @MainActor
+    private func stackedState(_ paneIDs: [String], focused: String) -> PaneStripState {
+        PaneStripState(
+            columns: [
+                PaneColumnState(
+                    id: PaneColumnID("stack"),
+                    panes: paneIDs.map { PaneState(id: PaneID($0), title: $0) },
+                    width: 910,
+                    focusedPaneID: PaneID(focused),
+                    lastFocusedPaneID: PaneID(focused)
+                ),
+            ],
+            focusedColumnID: PaneColumnID("stack")
+        )
+    }
+
+    @MainActor
+    func test_stale_animated_render_completion_keeps_newer_render_frozen() throws {
+        let paneStripView = makePaneStripView(width: 1200, height: 720)
+        let window = hostInVisibleWindow(paneStripView)
+        defer { window.contentView = NSView() }
+
+        paneStripView.render(stackedState(["shell"], focused: "shell"), animated: false)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        paneStripView.holdsAnimatedRenderCompletionsForTesting = true
+        paneStripView.render(stackedState(["shell", "one"], focused: "one"), animated: true)
+        paneStripView.layoutSubtreeIfNeeded()
+        paneStripView.render(stackedState(["shell", "one", "two"], focused: "two"), animated: true)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        let newerFrozenPaneID = try XCTUnwrap(paneStripView.lastInsertionTransition?.sourcePaneID)
+        func pane(_ id: PaneID) throws -> PaneContainerView {
+            try XCTUnwrap(paneStripView.descendantPaneViews().first(where: { $0.paneID == id }))
+        }
+
+        paneStripView.fireNextHeldAnimatedRenderCompletionForTesting()
+
+        XCTAssertTrue(paneStripView.hasPendingAnimatedSettleActionForTesting)
+        XCTAssertTrue(try pane(newerFrozenPaneID).isTerminalAnimationFrozen)
+        for id in ["shell", "one", "two"] {
+            XCTAssertTrue(try pane(PaneID(id)).isTerminalViewportSyncSuspended, id)
+        }
+
+        paneStripView.fireNextHeldAnimatedRenderCompletionForTesting()
+
+        XCTAssertFalse(paneStripView.hasPendingAnimatedSettleActionForTesting)
+        XCTAssertFalse(try pane(newerFrozenPaneID).isTerminalAnimationFrozen)
+        for id in ["shell", "one", "two"] {
+            XCTAssertFalse(try pane(PaneID(id)).isTerminalViewportSyncSuspended, id)
+        }
+    }
+
+    @MainActor
+    private func assertSupersededRenderCarriesAttachedPaneSync(successorAnimates: Bool) throws {
+        let adapterFactory = TerminalAdapterFactorySpy()
+        let runtimeRegistry = PaneRuntimeRegistry(adapterFactory: adapterFactory.makeAdapter(for:))
+        let paneStripView = PaneStripView(
+            frame: NSRect(x: 0, y: 0, width: 1400, height: 720),
+            runtimeRegistry: runtimeRegistry
+        )
+        addTeardownBlock {
+            MainActor.assumeIsolated { paneStripView.prepareForTestingTearDown() }
+        }
+        let window = hostInVisibleWindow(paneStripView)
+        defer { window.contentView = NSView() }
+
+        paneStripView.render(
+            PaneStripState(panes: [makePane("alpha")], focusedPaneID: PaneID("alpha")),
+            animated: false
+        )
+        paneStripView.layoutSubtreeIfNeeded()
+
+        paneStripView.holdsAnimatedRenderCompletionsForTesting = true
+        let attachedState = PaneStripState(
+            panes: [makePane("alpha"), makePane("beta")],
+            focusedPaneID: PaneID("beta")
+        )
+        paneStripView.render(attachedState, animated: true)
+        paneStripView.layoutSubtreeIfNeeded()
+        let betaView = try XCTUnwrap(adapterFactory.adapter(for: PaneID("beta"))?.terminalView)
+        XCTAssertEqual(betaView.forceViewportSyncCallCount, 0)
+
+        let successor = PaneStripState(
+            panes: [makePane("alpha"), makePane("beta")],
+            focusedPaneID: PaneID("alpha")
+        )
+        paneStripView.render(successor, animated: successorAnimates)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        paneStripView.fireNextHeldAnimatedRenderCompletionForTesting()
+        paneStripView.fireNextHeldAnimatedRenderCompletionForTesting()
+
+        XCTAssertGreaterThan(
+            betaView.forceViewportSyncCallCount, 0,
+            "the pane the superseded render attached still needs its viewport sync"
+        )
+    }
+
+    @MainActor
+    func test_animated_successor_syncs_pane_attached_by_superseded_render() throws {
+        try assertSupersededRenderCarriesAttachedPaneSync(successorAnimates: true)
+    }
+
+    @MainActor
+    func test_non_animated_successor_syncs_pane_attached_by_superseded_render() throws {
+        try assertSupersededRenderCarriesAttachedPaneSync(successorAnimates: false)
+    }
+
+    // MARK: - Zoom transitions
+
+    @MainActor
+    func test_stale_zoom_in_unsuspend_does_not_release_newer_zoom_in() throws {
+        let paneStripView = makePaneStripView(width: 1200, height: 720)
+        let window = hostInVisibleWindow(paneStripView)
+        defer { window.contentView = NSView() }
+        paneStripView.render(
+            PaneStripState(panes: [makePane("alpha"), makePane("beta")], focusedPaneID: PaneID("alpha")),
+            animated: false
+        )
+        paneStripView.layoutSubtreeIfNeeded()
+        let panes = paneStripView.descendantPaneViews()
+
+        paneStripView.beginPeekZoomOut(animated: true)
+        paneStripView.endPeekZoomIn(animated: true)
+        paneStripView.beginPeekZoomOut(animated: true)
+        pumpMainQueue(for: 0.15)
+        paneStripView.endPeekZoomIn(animated: true)
+
+        // Past the first zoom-in's 0.35s deadline, short of the second's.
+        pumpMainQueue(for: 0.25)
+        XCTAssertTrue(panes.allSatisfy(\.isTerminalViewportSyncSuspended))
+
+        pumpMainQueue(for: 0.25)
+        XCTAssertFalse(panes.contains(where: \.isTerminalViewportSyncSuspended))
+    }
+
+    @MainActor
+    func test_render_during_zoom_in_keeps_viewport_suspended() throws {
+        let paneStripView = makePaneStripView(width: 1200, height: 720)
+        let window = hostInVisibleWindow(paneStripView)
+        defer { window.contentView = NSView() }
+        let state = PaneStripState(
+            panes: [makePane("alpha"), makePane("beta")],
+            focusedPaneID: PaneID("alpha")
+        )
+        paneStripView.render(state, animated: false)
+        paneStripView.layoutSubtreeIfNeeded()
+        let panes = paneStripView.descendantPaneViews()
+
+        paneStripView.beginPeekZoomOut(animated: false)
+        paneStripView.endPeekZoomIn(animated: true)
+        paneStripView.render(state, animated: false)
+
+        XCTAssertTrue(panes.allSatisfy(\.isTerminalViewportSyncSuspended))
+
+        pumpMainQueue(for: 0.5)
+        XCTAssertFalse(panes.contains(where: \.isTerminalViewportSyncSuspended))
+    }
+
+    @MainActor
+    func test_peek_during_drag_zoom_in_still_runs_drag_cleanup() throws {
+        let paneStripView = makePaneStripView(width: 1200, height: 720)
+        let window = hostInVisibleWindow(paneStripView)
+        defer { window.contentView = NSView() }
+        _ = try beginThreePaneDrag(in: paneStripView)
+        let draggedPane = try XCTUnwrap(
+            paneStripView.descendantPaneViews().first(where: { $0.paneID == PaneID("alpha") })
+        )
+        XCTAssertEqual(paneStripView.viewportAutoresizingMaskForTesting, [])
+
+        let inactive = dragInactiveExpectation(for: paneStripView)
+        paneStripView.cancelPaneDragForTesting()
+        wait(for: [inactive], timeout: 5)
+
+        // The drag's own zoom-in is under way; a peek takes the zoom over.
+        paneStripView.beginPeekZoomOut(animated: true)
+        pumpMainQueue(for: 0.5)
+        paneStripView.endPeekZoomIn(animated: true)
+        pumpMainQueue(for: 0.5)
+
+        XCTAssertEqual(paneStripView.viewportAutoresizingMaskForTesting, [.width, .height])
+        XCTAssertFalse(draggedPane.isTerminalAnimationFrozen)
+        XCTAssertFalse(draggedPane.isTerminalViewportSyncSuspended)
+    }
+
+    @MainActor
+    func test_animated_render_during_zoom_in_stays_synchronous_until_the_zoom_settles() throws {
+        let paneStripView = makePaneStripView(width: 1200, height: 720)
+        let window = hostInVisibleWindow(paneStripView)
+        defer { window.contentView = NSView() }
+        paneStripView.render(
+            PaneStripState(panes: [makePane("alpha"), makePane("beta")], focusedPaneID: PaneID("alpha")),
+            animated: false
+        )
+        paneStripView.layoutSubtreeIfNeeded()
+
+        paneStripView.beginPeekZoomOut(animated: false)
+        paneStripView.endPeekZoomIn(animated: true)
+
+        // A split right after the peek closed. Its animation would outlive the
+        // zoom, whose settle then releases the suspension the render relies on.
+        paneStripView.holdsAnimatedRenderCompletionsForTesting = true
+        let splitState = PaneStripState(
+            panes: [makePane("alpha"), makePane("beta"), makePane("gamma")],
+            focusedPaneID: PaneID("gamma")
+        )
+        paneStripView.render(splitState, animated: true)
+        paneStripView.layoutSubtreeIfNeeded()
+
+        XCTAssertFalse(paneStripView.lastRenderWasAnimated)
+        XCTAssertFalse(paneStripView.hasPendingAnimatedSettleActionForTesting)
+        XCTAssertTrue(paneStripView.descendantPaneViews().allSatisfy(\.isTerminalViewportSyncSuspended))
+
+        pumpMainQueue(for: 0.5)
+        XCTAssertFalse(paneStripView.descendantPaneViews().contains(where: \.isTerminalViewportSyncSuspended))
+
+        // Once settled, renders animate again.
+        paneStripView.render(
+            PaneStripState(panes: [makePane("alpha"), makePane("beta")], focusedPaneID: PaneID("beta")),
+            animated: true
+        )
+        XCTAssertTrue(paneStripView.lastRenderWasAnimated)
+    }
+
+    /// A drag begun under a peek: the mouse went down on a drag zone before
+    /// the peek overlay opened, and crossed the threshold after it did.
+    @MainActor
+    private func assertPeekEndingMidDragLeavesTheZoomToTheDrag(
+        in paneStripView: PaneStripView,
+        cursor: CGPoint
+    ) throws {
+        paneStripView.beginPeekZoomOut(animated: true)
+        pumpMainQueue(for: 0.5)
+
+        paneStripView.onDragActiveChanged = nil
+        paneStripView.beginPaneDragForTesting(paneID: PaneID("alpha"), cursorInStrip: cursor)
+        XCTAssertTrue(paneStripView.isDragActive)
+        let draggedPane = try XCTUnwrap(paneStripView.paneContainerViewForTesting(PaneID("alpha")))
+        XCTAssertTrue(draggedPane.isTerminalAnimationFrozen)
+
+        paneStripView.endPeekZoomIn(animated: true)
+        pumpMainQueue(for: 0.5)
+
+        XCTAssertTrue(paneStripView.isZoomedOut, "the drag still owns the zoom")
+        XCTAssertEqual(paneStripView.viewportAutoresizingMaskForTesting, [])
+        XCTAssertTrue(draggedPane.isTerminalAnimationFrozen)
+        XCTAssertTrue(paneStripView.descendantPaneViews().allSatisfy(\.isTerminalViewportSyncSuspended))
+
+        let inactive = dragInactiveExpectation(for: paneStripView)
+        paneStripView.cancelPaneDragForTesting()
+        wait(for: [inactive], timeout: 5)
+        pumpMainQueue(for: 0.6)
+
+        XCTAssertFalse(paneStripView.isZoomedOut)
+        XCTAssertEqual(paneStripView.viewportAutoresizingMaskForTesting, [.width, .height])
+        XCTAssertFalse(draggedPane.isTerminalAnimationFrozen)
+        XCTAssertFalse(paneStripView.descendantPaneViews().contains(where: \.isTerminalViewportSyncSuspended))
+    }
+
+    @MainActor
+    func test_peek_ending_mid_drag_does_not_run_cleanup_owed_by_an_earlier_drag() throws {
+        let paneStripView = makePaneStripView(width: 1200, height: 720)
+        let window = hostInVisibleWindow(paneStripView)
+        defer { window.contentView = NSView() }
+        let (_, cursor) = try beginThreePaneDrag(in: paneStripView)
+
+        let inactive = dragInactiveExpectation(for: paneStripView)
+        paneStripView.cancelPaneDragForTesting()
+        wait(for: [inactive], timeout: 5)
+
+        // Still inside the first drag's zoom-in: its cleanup stays owed.
+        try assertPeekEndingMidDragLeavesTheZoomToTheDrag(in: paneStripView, cursor: cursor)
+    }
+
+    @MainActor
+    func test_peek_ending_mid_drag_leaves_cleanup_to_the_drag_that_began_under_it() throws {
+        let paneStripView = makePaneStripView(width: 1200, height: 720)
+        let window = hostInVisibleWindow(paneStripView)
+        defer { window.contentView = NSView() }
+        let (_, cursor) = try beginThreePaneDrag(in: paneStripView)
+
+        let inactive = dragInactiveExpectation(for: paneStripView)
+        paneStripView.cancelPaneDragForTesting()
+        wait(for: [inactive], timeout: 5)
+        pumpMainQueue(for: 0.6)
+
+        try assertPeekEndingMidDragLeavesTheZoomToTheDrag(in: paneStripView, cursor: cursor)
+    }
+
+    // MARK: - Drag Escape
+
+    /// Stands in for a terminal that acts on Escape.
+    private final class KeyRecordingView: NSView {
+        private(set) var keyDownCount = 0
+        override var acceptsFirstResponder: Bool { true }
+        override func keyDown(with event: NSEvent) { keyDownCount += 1 }
+    }
+
+    @MainActor
+    private func installKeyRecorder(in paneStripView: PaneStripView) -> KeyRecordingView {
+        let recorder = KeyRecordingView(frame: NSRect(x: 0, y: 0, width: 10, height: 10))
+        paneStripView.addSubview(recorder)
+        return recorder
+    }
+
+    @MainActor
+    private func pressEscape(in window: NSWindow, over recorder: KeyRecordingView) throws {
+        // Renders refocus the pane; here the recorder plays that terminal.
+        XCTAssertTrue(window.makeFirstResponder(recorder))
+        let escape = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "\u{1b}",
+            charactersIgnoringModifiers: "\u{1b}",
+            isARepeat: false,
+            keyCode: 53
+        ))
+        NSApp.sendEvent(escape)
+    }
+
+    @MainActor
+    func test_escape_during_cancel_spring_does_not_reach_the_terminal() throws {
+        let paneStripView = makePaneStripView(width: 1200, height: 720)
+        let window = hostInVisibleWindow(paneStripView)
+        defer { window.contentView = NSView() }
+        _ = try beginThreePaneDrag(in: paneStripView)
+        let recorder = installKeyRecorder(in: paneStripView)
+        let inactive = dragInactiveExpectation(for: paneStripView)
+
+        try pressEscape(in: window, over: recorder)
+        try pressEscape(in: window, over: recorder)
+
+        XCTAssertEqual(recorder.keyDownCount, 0, "both presses belong to the gesture")
+        wait(for: [inactive], timeout: 5)
+
+        try pressEscape(in: window, over: recorder)
+        XCTAssertEqual(recorder.keyDownCount, 1, "the drag is over, so Escape is the terminal's again")
+    }
+
+    @MainActor
+    func test_escape_during_internal_drop_settle_does_not_reach_the_terminal() throws {
+        let paneStripView = makePaneStripView(width: 1200, height: 720)
+        let window = hostInVisibleWindow(paneStripView)
+        defer { window.contentView = NSView() }
+        let (state, cursor) = try beginThreePaneDrag(in: paneStripView)
+        let recorder = installKeyRecorder(in: paneStripView)
+        paneStripView.onPaneDragOutcome = { _ in
+            paneStripView.render(state, animated: false)
+        }
+        let inactive = dragInactiveExpectation(for: paneStripView)
+
+        paneStripView.endPaneDragForTesting(cursorInStrip: cursor)
+        XCTAssertTrue(paneStripView.isDragActive)
+
+        try pressEscape(in: window, over: recorder)
+
+        XCTAssertEqual(recorder.keyDownCount, 0)
+        wait(for: [inactive], timeout: 5)
+
+        try pressEscape(in: window, over: recorder)
+        XCTAssertEqual(recorder.keyDownCount, 1)
+    }
+
     private func makePane(_ title: String) -> PaneState {
         PaneState(id: PaneID(title), title: title)
     }
@@ -4804,6 +5364,21 @@ private final class PaneStripTerminalViewSpy:
     private(set) var cursorExclusionRects: [CGRect] = []
     let detachedFocusTarget = NSView()
     var usesDetachedFocusTarget = false
+    var reportsResponderChanges = false
+
+    override func becomeFirstResponder() -> Bool {
+        if reportsResponderChanges {
+            onFocusDidChange?(true)
+        }
+        return true
+    }
+
+    override func resignFirstResponder() -> Bool {
+        if reportsResponderChanges {
+            onFocusDidChange?(false)
+        }
+        return true
+    }
 
     var terminalFocusTargetView: NSView {
         usesDetachedFocusTarget ? detachedFocusTarget : self

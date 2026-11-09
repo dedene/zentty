@@ -165,6 +165,20 @@ final class AgentHistoryConsentTests: XCTestCase {
         XCTAssertTrue(AgentHistoryNoAgentsView.title.hasPrefix("No conversations from Claude Code"))
     }
 
+    func test_no_agents_body_follows_consent_recorded_elsewhere() {
+        let model = startedConsent([missing(.claude, checked: ["\(root)/.claude"])])
+        XCTAssertEqual(model.body, .noAgents(checkedPaths: ["\(root)/.claude"]))
+
+        var status = control.status
+        status.isEnabled = true
+        status.hasConsented = true
+        status.state = .watching
+        status.revision = 2
+        control.publish(status)
+
+        XCTAssertEqual(model.body, .results)
+    }
+
     func test_consent_model_totals_found_sessions_and_database_sources_show_found_without_count() {
         let consent = AgentHistoryConsentModel.make(detected: typicalSources, excluded: [], retentions: [])
 
@@ -363,6 +377,19 @@ final class AgentHistoryConsentTests: XCTestCase {
         XCTAssertEqual(control.enabledAgents.count, 1, "a retry after a successful save enables indexing")
         XCTAssertNil(model.consent?.saveError)
         XCTAssertEqual(model.consent?.isIndexing, true)
+    }
+
+    func test_consent_that_could_not_be_saved_unlocks_the_card_with_an_error() throws {
+        control.stateChangeOutcome = .notSaved
+        let model = startedConsent()
+
+        model.confirmConsent()
+
+        XCTAssertEqual(model.body, .consent)
+        let consent = try XCTUnwrap(model.consent)
+        XCTAssertFalse(consent.isIndexing, "no indexer is coming to report progress")
+        XCTAssertEqual(consent.saveError, AgentHistoryConsentModel.stateNotSavedError)
+        XCTAssertTrue(consent.canConfirm, "the user can try again")
     }
 
     func test_switches_to_results_after_50_sessions_indexed() throws {

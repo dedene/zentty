@@ -99,7 +99,106 @@ final class LibghosttyViewDragDropTests: AppKitTestCase {
         XCTAssertTrue(surface.sentTexts.isEmpty)
     }
 
+    // MARK: - userEditedInput
+
+    func test_drop_emits_user_edited_input() {
+        let events = recordLocalEvents()
+        let pasteboard = makeTestPasteboard()
+        pasteboard.declareTypes([.string], owner: nil)
+        pasteboard.setString("echo hello", forType: .string)
+
+        XCTAssertTrue(view.performDragOperation(StubDraggingInfo(pasteboard: pasteboard)))
+
+        XCTAssertEqual(events.recorded, [.userEditedInput])
+    }
+
+    func test_drop_held_for_confirmation_reports_input_only_once_allowed() throws {
+        let events = recordLocalEvents()
+        surface.holdsPastesForConfirmation = true
+        let pasteboard = makeTestPasteboard()
+        pasteboard.declareTypes([.string], owner: nil)
+        pasteboard.setString("echo safe\nrm -rf ~/important\n", forType: .string)
+
+        XCTAssertTrue(view.performDragOperation(StubDraggingInfo(pasteboard: pasteboard)))
+
+        XCTAssertEqual(surface.pastedTexts.count, 1)
+        XCTAssertEqual(events.recorded, [], "refusing the prompt must leave no edit behind")
+
+        try XCTUnwrap(surface.heldPasteDeliveries.first)()
+
+        XCTAssertEqual(events.recorded, [.userEditedInput])
+    }
+
+    func test_drop_handled_by_remote_image_paste_waits_for_the_upload_to_report_input() {
+        let events = recordLocalEvents()
+        view.remoteImagePasteHandler = { _, _ in true }
+        let pasteboard = makeTestPasteboard()
+        pasteboard.declareTypes([.png], owner: nil)
+
+        XCTAssertTrue(view.performDragOperation(StubDraggingInfo(pasteboard: pasteboard)))
+
+        XCTAssertEqual(events.recorded, [], "handled only means Zentty took it; it may have been rejected")
+    }
+
+    func test_rejected_drop_emits_nothing() {
+        let events = recordLocalEvents()
+        let pasteboard = makeTestPasteboard()
+        pasteboard.declareTypes([.color], owner: nil)
+
+        XCTAssertFalse(view.performDragOperation(StubDraggingInfo(pasteboard: pasteboard)))
+
+        XCTAssertEqual(events.recorded, [])
+    }
+
+    func test_paste_emits_user_edited_input() {
+        let events = recordLocalEvents()
+
+        view.paste(nil)
+
+        XCTAssertEqual(surface.performedBindingActions, ["paste_from_clipboard"])
+        XCTAssertEqual(events.recorded, [.userEditedInput])
+    }
+
+    func test_paste_held_for_confirmation_reports_input_only_once_allowed() throws {
+        let events = recordLocalEvents()
+        surface.holdsPastesForConfirmation = true
+
+        view.paste(nil)
+
+        XCTAssertEqual(surface.performedBindingActions, ["paste_from_clipboard"])
+        XCTAssertEqual(events.recorded, [], "refusing the prompt must leave no edit behind")
+
+        try XCTUnwrap(surface.heldPasteDeliveries.first)()
+
+        XCTAssertEqual(events.recorded, [.userEditedInput])
+    }
+
+    func test_paste_handled_by_remote_image_paste_waits_for_the_upload_to_report_input() {
+        let events = recordLocalEvents()
+        view.remoteImagePasteHandler = { _, _ in true }
+
+        view.paste(nil)
+
+        XCTAssertTrue(surface.performedBindingActions.isEmpty)
+        XCTAssertEqual(events.recorded, [], "handled only means Zentty took it; it may have been rejected")
+    }
+
+    func test_paste_with_unhandled_binding_emits_nothing() {
+        let events = recordLocalEvents()
+        surface.bindingActionResult = false
+
+        view.paste(nil)
+
+        XCTAssertEqual(events.recorded, [])
+    }
+
     // MARK: - Helpers
+
+    private func recordLocalEvents() -> LocalEventRecorder {
+        let recorder = LocalEventRecorder()
+        view.onLocalEventDidOccur = { recorder.recorded.append($0) }
+        return recorder
+    }
 
     private func makeTestPasteboard() -> NSPasteboard {
         NSPasteboard(name: .init("test-\(UUID().uuidString)"))
@@ -107,7 +206,73 @@ final class LibghosttyViewDragDropTests: AppKitTestCase {
 
 }
 
+@MainActor
+final class LibghosttyUserPasteTrackerTests: XCTestCase {
+    func test_paste_delivered_inside_the_starting_call_reports_when_it_returns() {
+        var tracker = LibghosttyUserPasteTracker()
+        var reports = 0
+        tracker.begin { reports += 1 }
+
+        tracker.finish(started: true)?()
+
+        XCTAssertEqual(reports, 1)
+    }
+
+    func test_paste_held_for_confirmation_reports_only_through_the_confirmation() {
+        var tracker = LibghosttyUserPasteTracker()
+        var reports = 0
+        tracker.begin { reports += 1 }
+
+        let confirmed = tracker.holdForConfirmation()
+        tracker.finish(started: true)?()
+        XCTAssertEqual(reports, 0)
+
+        confirmed?()
+        XCTAssertEqual(reports, 1)
+    }
+
+    func test_paste_that_never_began_reports_nothing() {
+        var tracker = LibghosttyUserPasteTracker()
+        var reports = 0
+        tracker.begin { reports += 1 }
+
+        tracker.finish(started: false)?()
+
+        XCTAssertEqual(reports, 0)
+        XCTAssertNil(tracker.holdForConfirmation(), "nothing is left for a later confirmation")
+    }
+
+    func test_allowed_paste_reports_its_edit_before_the_hold_ends() {
+        var events: [TerminalEvent] = []
+        let held = LibghosttyHeldUserPaste(
+            delivered: { events.append(.userEditedInput) },
+            report: { events.append($0) }
+        )
+        XCTAssertEqual(events, [.userPasteHold(.began)])
+
+        held.settle(delivered: true)
+
+        XCTAssertEqual(events, [.userPasteHold(.began), .userEditedInput, .userPasteHold(.ended)])
+    }
+
+    func test_refused_paste_ends_its_hold_without_reporting_an_edit() {
+        var events: [TerminalEvent] = []
+        let held = LibghosttyHeldUserPaste(
+            delivered: { events.append(.userEditedInput) },
+            report: { events.append($0) }
+        )
+
+        held.settle(delivered: false)
+
+        XCTAssertEqual(events, [.userPasteHold(.began), .userPasteHold(.ended)])
+    }
+}
+
 // MARK: - Test Doubles
+
+private final class LocalEventRecorder {
+    var recorded: [TerminalEvent] = []
+}
 
 private final class SurfaceTextSpy: LibghosttySurfaceControlling {
     var hasScrollback = false
@@ -116,6 +281,19 @@ private final class SurfaceTextSpy: LibghosttySurfaceControlling {
     var searchDidChange: ((TerminalSearchEvent) -> Void)?
     private(set) var sentTexts: [String] = []
     private(set) var pastedTexts: [String] = []
+    private(set) var performedBindingActions: [String] = []
+    var bindingActionResult = true
+    var holdsPastesForConfirmation = false
+    private(set) var heldPasteDeliveries: [@MainActor () -> Void] = []
+
+    func trackUserPaste(start: () -> Bool, delivered: @escaping @MainActor () -> Void) {
+        guard start() else { return }
+        if holdsPastesForConfirmation {
+            heldPasteDeliveries.append(delivered)
+        } else {
+            delivered()
+        }
+    }
 
     func updateViewport(size: CGSize, scale: CGFloat, displayID: UInt32?) {}
     func setFocused(_ isFocused: Bool) {}
@@ -132,7 +310,10 @@ private final class SurfaceTextSpy: LibghosttySurfaceControlling {
     func sendText(_ text: String) { sentTexts.append(text) }
     func pasteText(_ text: String) { pastedTexts.append(text) }
     func submitReturn() {}
-    func performBindingAction(_ action: String) -> Bool { true }
+    func performBindingAction(_ action: String) -> Bool {
+        performedBindingActions.append(action)
+        return bindingActionResult
+    }
     func hasSelection() -> Bool { false }
     func close() {}
     func inheritedConfig(for context: ghostty_surface_context_e) -> ghostty_surface_config_s? { nil }

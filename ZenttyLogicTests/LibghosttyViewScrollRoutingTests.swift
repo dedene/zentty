@@ -192,8 +192,39 @@ final class LibghosttyViewScrollRoutingTests: AppKitTestCase {
 
         XCTAssertEqual(builderCallCount, 1)
         XCTAssertEqual(presentedMenuTitles, ["Add Pane Up"])
+        XCTAssertEqual(surface.sentMouseButtons.map(\.button), [GHOSTTY_MOUSE_RIGHT, GHOSTTY_MOUSE_RIGHT])
+        XCTAssertEqual(surface.sentMouseButtons.map(\.state), [GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_RELEASE])
+    }
+
+    func test_unconsumed_right_click_releases_after_context_menu() throws {
+        surface.mouseButtonResults[GHOSTTY_MOUSE_RIGHT] = false
+        var statesWhileMenuWasOpen: [ghostty_input_mouse_state_e] = []
+        view.contextMenuBuilder = { _, _ in NSMenu(title: "") }
+        view.contextMenuPresenter = { [surface] _, _, _ in
+            statesWhileMenuWasOpen = surface?.sentMouseButtons.map(\.state) ?? []
+        }
+
+        view.rightMouseDown(with: try makeMouseEvent(type: .rightMouseDown, location: CGPoint(x: 120, y: 180)))
+
+        XCTAssertEqual(statesWhileMenuWasOpen, [GHOSTTY_MOUSE_PRESS], "the release waits for the menu to close")
+        XCTAssertEqual(surface.sentMouseButtons.map(\.state), [GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_RELEASE])
         XCTAssertEqual(surface.sentMouseButtons.last?.button, GHOSTTY_MOUSE_RIGHT)
-        XCTAssertEqual(surface.sentMouseButtons.last?.state, GHOSTTY_MOUSE_PRESS)
+
+        view.rightMouseUp(with: try makeMouseEvent(type: .rightMouseUp, location: CGPoint(x: 120, y: 180)))
+
+        XCTAssertEqual(surface.sentMouseButtons.count, 2, "a late rightMouseUp must not send a second release")
+    }
+
+    func test_right_click_without_context_menu_releases_on_mouse_up() throws {
+        surface.mouseButtonResults[GHOSTTY_MOUSE_RIGHT] = false
+
+        view.rightMouseDown(with: try makeMouseEvent(type: .rightMouseDown, location: CGPoint(x: 120, y: 180)))
+
+        XCTAssertEqual(surface.sentMouseButtons.map(\.state), [GHOSTTY_MOUSE_PRESS])
+
+        view.rightMouseUp(with: try makeMouseEvent(type: .rightMouseUp, location: CGPoint(x: 120, y: 180)))
+
+        XCTAssertEqual(surface.sentMouseButtons.map(\.state), [GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_RELEASE])
     }
 
     func test_consumed_right_click_does_not_request_context_menu_presentation() throws {
@@ -240,9 +271,9 @@ final class LibghosttyViewScrollRoutingTests: AppKitTestCase {
 
         XCTAssertEqual(builderCallCount, 1)
         XCTAssertEqual(presentedMenuTitles, ["Add Pane Up"])
-        XCTAssertEqual(surface.sentMouseButtons.last?.button, GHOSTTY_MOUSE_LEFT)
-        XCTAssertEqual(surface.sentMouseButtons.last?.state, GHOSTTY_MOUSE_PRESS)
-        XCTAssertTrue(surface.sentMouseButtons.last?.modifiers.contains(.control) == true)
+        XCTAssertEqual(surface.sentMouseButtons.map(\.button), [GHOSTTY_MOUSE_LEFT, GHOSTTY_MOUSE_LEFT])
+        XCTAssertEqual(surface.sentMouseButtons.map(\.state), [GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_RELEASE])
+        XCTAssertTrue(surface.sentMouseButtons.first?.modifiers.contains(.control) == true)
         XCTAssertEqual(selectionDragStates, [])
     }
 
@@ -338,6 +369,74 @@ final class LibghosttyViewScrollRoutingTests: AppKitTestCase {
         XCTAssertEqual(position.y, 390, accuracy: 0.01)
     }
 
+    func test_mouse_up_over_suppressed_rect_still_releases_forwarded_press() throws {
+        view.setMouseInteractionSuppressionRects([CGRect(x: 0, y: 0, width: 800, height: 40)])
+
+        view.mouseDown(with: try makeMouseEvent(type: .leftMouseDown, location: CGPoint(x: 120, y: 180)))
+        let positionCountAfterPress = surface.sentMousePositions.count
+        view.mouseUp(with: try makeMouseEvent(type: .leftMouseUp, location: CGPoint(x: 120, y: 20)))
+
+        XCTAssertEqual(surface.sentMouseButtons.map(\.state), [GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_RELEASE])
+        XCTAssertEqual(surface.sentMouseButtons.last?.button, GHOSTTY_MOUSE_LEFT)
+        XCTAssertEqual(
+            surface.sentMousePositions.count,
+            positionCountAfterPress,
+            "a release over an occluding control must not forward a position through it"
+        )
+    }
+
+    func test_secondary_mouse_up_over_suppressed_rect_still_releases_forwarded_press() throws {
+        surface.mouseButtonResults[GHOSTTY_MOUSE_RIGHT] = true
+        view.setMouseInteractionSuppressionRects([CGRect(x: 0, y: 0, width: 800, height: 40)])
+
+        view.rightMouseDown(with: try makeMouseEvent(type: .rightMouseDown, location: CGPoint(x: 120, y: 180)))
+        let positionCountAfterPress = surface.sentMousePositions.count
+        view.rightMouseUp(with: try makeMouseEvent(type: .rightMouseUp, location: CGPoint(x: 120, y: 20)))
+
+        XCTAssertEqual(surface.sentMouseButtons.map(\.state), [GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_RELEASE])
+        XCTAssertEqual(surface.sentMouseButtons.last?.button, GHOSTTY_MOUSE_RIGHT)
+        XCTAssertEqual(surface.sentMousePositions.count, positionCountAfterPress)
+    }
+
+    func test_control_secondary_mouse_up_over_suppressed_rect_releases_left() throws {
+        surface.mouseButtonResults[GHOSTTY_MOUSE_LEFT] = true
+        view.setMouseInteractionSuppressionRects([CGRect(x: 0, y: 0, width: 800, height: 40)])
+
+        view.rightMouseDown(with: try makeMouseEvent(
+            type: .rightMouseDown,
+            location: CGPoint(x: 120, y: 180),
+            modifierFlags: [.control]
+        ))
+        view.rightMouseUp(with: try makeMouseEvent(type: .rightMouseUp, location: CGPoint(x: 120, y: 20)))
+
+        XCTAssertEqual(surface.sentMouseButtons.map(\.button), [GHOSTTY_MOUSE_LEFT, GHOSTTY_MOUSE_LEFT])
+        XCTAssertEqual(surface.sentMouseButtons.last?.state, GHOSTTY_MOUSE_RELEASE)
+    }
+
+    func test_mouse_up_without_forwarded_press_sends_no_release() throws {
+        view.mouseUp(with: try makeMouseEvent(type: .leftMouseUp, location: CGPoint(x: 120, y: 180)))
+
+        XCTAssertTrue(surface.sentMouseButtons.isEmpty)
+        XCTAssertTrue(surface.sentMousePositions.isEmpty)
+    }
+
+    func test_mouse_up_after_suppressed_press_sends_no_release() throws {
+        view.setMouseInteractionSuppressionRects([CGRect(x: 0, y: 0, width: 800, height: 40)])
+
+        view.mouseDown(with: try makeMouseEvent(type: .leftMouseDown, location: CGPoint(x: 120, y: 20)))
+        view.mouseUp(with: try makeMouseEvent(type: .leftMouseUp, location: CGPoint(x: 120, y: 180)))
+
+        XCTAssertTrue(surface.sentMouseButtons.isEmpty)
+    }
+
+    func test_second_mouse_up_sends_only_one_release() throws {
+        view.mouseDown(with: try makeMouseEvent(type: .leftMouseDown, location: CGPoint(x: 120, y: 180)))
+        view.mouseUp(with: try makeMouseEvent(type: .leftMouseUp, location: CGPoint(x: 120, y: 180)))
+        view.mouseUp(with: try makeMouseEvent(type: .leftMouseUp, location: CGPoint(x: 120, y: 180)))
+
+        XCTAssertEqual(surface.sentMouseButtons.map(\.state), [GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_RELEASE])
+    }
+
     func test_control_left_click_menu_is_suppressed_when_terminal_has_captured_mouse() throws {
         var builderCallCount = 0
         surface.mouseCaptured = true
@@ -375,9 +474,23 @@ final class LibghosttyViewScrollRoutingTests: AppKitTestCase {
 
         XCTAssertEqual(builderCallCount, 1)
         XCTAssertEqual(menu?.items.map(\.title), ["Add Pane Up"])
-        XCTAssertEqual(surface.sentMouseButtons.last?.button, GHOSTTY_MOUSE_RIGHT)
-        XCTAssertEqual(surface.sentMouseButtons.last?.state, GHOSTTY_MOUSE_PRESS)
-        XCTAssertTrue(surface.sentMouseButtons.last?.modifiers.contains(.control) == true)
+        XCTAssertEqual(surface.sentMouseButtons.map(\.button), [GHOSTTY_MOUSE_RIGHT, GHOSTTY_MOUSE_RIGHT])
+        XCTAssertEqual(surface.sentMouseButtons.map(\.state), [GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_RELEASE])
+        XCTAssertTrue(surface.sentMouseButtons.first?.modifiers.contains(.control) == true)
+    }
+
+    func test_left_up_after_control_left_click_menu_sends_no_left_release() throws {
+        surface.mouseCaptured = false
+        view.contextMenuBuilder = { _, _ in NSMenu(title: "") }
+
+        _ = view.menu(for: try makeMouseEvent(
+            type: .leftMouseDown,
+            location: CGPoint(x: 120, y: 180),
+            modifierFlags: [.control]
+        ))
+        view.mouseUp(with: try makeMouseEvent(type: .leftMouseUp, location: CGPoint(x: 120, y: 180)))
+
+        XCTAssertEqual(surface.sentMouseButtons.map(\.button), [GHOSTTY_MOUSE_RIGHT, GHOSTTY_MOUSE_RIGHT])
     }
 
     func test_control_left_drag_reaches_terminal_after_captured_menu_is_suppressed() throws {

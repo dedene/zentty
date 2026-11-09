@@ -107,6 +107,25 @@ final class LibghosttySurfaceActionCoalescer {
         return true
     }
 
+    /// Drops queued search events. Everything queued when a search ends belongs
+    /// to that session, so it must not reach whoever owns the next one.
+    func discardSearchEvents() {
+        lock.lock()
+        defer { lock.unlock() }
+
+        state.sequence.removeAll { entry in
+            guard case .ordered(let payload) = entry else {
+                return false
+            }
+            switch payload {
+            case .startSearch, .endSearch, .searchTotal, .searchSelected:
+                return true
+            default:
+                return false
+            }
+        }
+    }
+
     func drain() -> LibghosttySurfaceActionDrainBatch {
         lock.lock()
         defer { lock.unlock() }
@@ -132,6 +151,56 @@ final class LibghosttySurfaceActionCoalescer {
     }
 }
 
+/// Ties a user paste to the moment its text reaches the terminal. Ghostty decides
+/// inside the call that starts the paste: it either delivers the text there, or
+/// passes the request to the confirm callback, which then owns reporting it.
+struct LibghosttyUserPasteTracker {
+    typealias Delivered = @MainActor () -> Void
+
+    private var starting: Delivered?
+
+    mutating func begin(delivered: @escaping Delivered) {
+        starting = delivered
+    }
+
+    mutating func holdForConfirmation() -> Delivered? {
+        defer { starting = nil }
+        return starting
+    }
+
+    /// What to report now that the starting call returned: nothing if the paste
+    /// never began or went to confirmation.
+    mutating func finish(started: Bool) -> Delivered? {
+        defer { starting = nil }
+        return started ? starting : nil
+    }
+}
+
+/// A user paste waiting on its confirmation prompt. The runtime keeps startup text out of the
+/// terminal until this settles, so every way out of the prompt has to settle it.
+struct LibghosttyHeldUserPaste: Sendable {
+    private let delivered: LibghosttyUserPasteTracker.Delivered
+    private let holdEnded: @MainActor () -> Void
+
+    @MainActor
+    init(
+        delivered: @escaping LibghosttyUserPasteTracker.Delivered,
+        report: @escaping (TerminalEvent) -> Void
+    ) {
+        self.delivered = delivered
+        holdEnded = { report(.userPasteHold(.ended)) }
+        report(.userPasteHold(.began))
+    }
+
+    @MainActor
+    func settle(delivered wasDelivered: Bool) {
+        if wasDelivered {
+            delivered()
+        }
+        holdEnded()
+    }
+}
+
 @MainActor
 final class LibghosttySurface: LibghosttySurfaceControlling, LibghosttySurfaceTextReading {
     nonisolated(unsafe) var surface: ghostty_surface_t?
@@ -145,6 +214,7 @@ final class LibghosttySurface: LibghosttySurfaceControlling, LibghosttySurfaceTe
     private weak var hostView: LibghosttyView?
     private(set) var hasScrollback = false
     private var hasEmittedShellReady = false
+    private var userPasteTracker = LibghosttyUserPasteTracker()
     var searchDidChange: ((TerminalSearchEvent) -> Void)?
 
     /// The window this pane is shown in, for sheets such as clipboard prompts.
@@ -443,6 +513,19 @@ final class LibghosttySurface: LibghosttySurfaceControlling, LibghosttySurfaceTe
         }
     }
 
+    func trackUserPaste(start: () -> Bool, delivered: @escaping @MainActor () -> Void) {
+        userPasteTracker.begin(delivered: delivered)
+        let started = start()
+        userPasteTracker.finish(started: started)?()
+    }
+
+    /// The confirm callback takes over reporting the paste being started.
+    func holdUserPasteForConfirmation() -> LibghosttyHeldUserPaste? {
+        userPasteTracker.holdForConfirmation().map {
+            LibghosttyHeldUserPaste(delivered: $0, report: eventDidOccur)
+        }
+    }
+
     func setPreedit(_ text: String) {
         guard let surface else {
             return
@@ -710,6 +793,10 @@ final class LibghosttySurface: LibghosttySurfaceControlling, LibghosttySurfaceTe
 
     nonisolated func enqueue(payload: LibghosttySurfaceActionPayload) -> Bool {
         actionCoalescer.enqueue(payload)
+    }
+
+    func discardQueuedSearchEvents() {
+        actionCoalescer.discardSearchEvents()
     }
 
     @MainActor

@@ -7,12 +7,14 @@ struct AgentHistoryAccess: Equatable {
     var hasConsented: Bool
     var enabledAgents: Set<AgentHistoryAgent>
     var excludedFolders: [String]
+    var removedKeys: Set<AgentHistorySessionKey>
 
     init(_ status: AgentHistoryStatus) {
         isEnabled = status.isEnabled
         hasConsented = status.hasConsented
         enabledAgents = status.enabledAgents
         excludedFolders = status.excludedFolders
+        removedKeys = status.removedKeys
     }
 
     /// Turned off, or consent gone ("Delete Index and Turn Off").
@@ -34,11 +36,18 @@ extension AgentHistoryViewModel {
         let previous = access
         access = next
         if let previous, previous.isRevoked(by: next) {
-            revokeAccess()
+            revokeAccess(status: status)
             return
         }
         updateFooter(status: status)
         if consentStatusDidChange(status) {
+            return
+        }
+        if body == .historyOff {
+            lastStatusRevision = status.revision
+            if !status.isTurnedOff {
+                resolveBody(status: status)
+            }
             return
         }
         switch (body, status.state) {
@@ -57,10 +66,24 @@ extension AgentHistoryViewModel {
             resolveBody(status: status)
             return
         }
+        // Another Zentty instance recorded consent while this one saw no agents.
+        if case .noAgents = body, status.hasConsented {
+            lastStatusRevision = status.revision
+            resolveBody(status: status)
+            return
+        }
         if body == .results, let previous, previous.changesVisibleSessions(to: next) {
             lastStatusRevision = status.revision
             refreshForAccessChange()
             return
+        }
+        // Removed here (`removalCompleted` got there too) or by another instance, or in another
+        // window: no row stays, and nothing typed runs again for a session that wasn't listed.
+        if body == .results, let previous {
+            let removed = next.removedKeys.subtracting(previous.removedKeys)
+            if !removed.isEmpty {
+                dropRemovedSessions(removed)
+            }
         }
         guard status.revision != lastStatusRevision else { return }
         lastStatusRevision = status.revision
@@ -76,14 +99,35 @@ extension AgentHistoryViewModel {
         }
     }
 
-    /// Agent History was turned off or its index deleted: drops every pending load (a late one
-    /// is ignored by the bumped generations), clears what was shown and closes the palette. The
-    /// next open starts over from the status. Focus stays where the change was made (Settings).
-    private func revokeAccess() {
+    /// Turned off, the palette stays on the off screen to hear History coming back. Index
+    /// deleted, consent is gone with it, so the palette closes and the next open starts over
+    /// from the status. Focus stays where the change was made (Settings).
+    private func revokeAccess(status: AgentHistoryStatus) {
+        if status.isTurnedOff {
+            lastStatusRevision = status.revision
+            resolveBody(status: status)
+            updateFooter(status: status)
+            return
+        }
         stop()
+        body = .loading
+        clearShownSessions()
+        onRequestClose?(false)
+    }
+
+    /// The only way onto the off screen: nothing listed before stays behind it.
+    func showHistoryOff() {
+        body = .historyOff
+        resetQuery()
+        clearShownSessions()
+    }
+
+    /// Drops every pending load (a late one is ignored by the bumped generations) and clears
+    /// what was shown.
+    private func clearShownSessions() {
+        cancelPendingLoads()
         searchGeneration &+= 1
         detailGeneration &+= 1
-        body = .loading
         sections = []
         selectedKey = nil
         contentPhase = .idle
@@ -97,7 +141,6 @@ extension AgentHistoryViewModel {
         consent = nil
         transientMessage = nil
         isShowingIndexProgress = false
-        onRequestClose?(false)
     }
 
     /// An agent was turned off or the excluded folders changed. The search services already
