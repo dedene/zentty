@@ -5,6 +5,26 @@ private let stopSignalLogger = Logger(subsystem: "be.zenjoy.zentty", category: "
 private let codexRestartLogger = Logger(subsystem: "be.zenjoy.zentty", category: "CodexRestart")
 
 extension WorklaneStore {
+    func terminalOpenURLDecision(
+        paneID: PaneID,
+        target: String,
+        kind: TerminalOpenURLKind
+    ) -> TerminalOpenURLDecision? {
+        guard let index = worklaneIndex(containingPane: paneID) else { return nil }
+        let worklane = worklanes[index]
+        let auxiliary = worklane.auxiliaryStateByPaneID[paneID]
+        let location = PaneTerminalLocationResolver.snapshot(
+            metadata: auxiliary?.metadata,
+            shellContext: auxiliary?.shellContext,
+            requestWorkingDirectory: nonInheritedSessionWorkingDirectory(for: paneID, in: worklane)
+        )
+        return TerminalOpenURLPolicy.decision(
+            for: target,
+            kind: kind,
+            workingDirectory: location.workingDirectory
+        )
+    }
+
     private static let codexReadyNotificationRecoveryWindow: TimeInterval = 10
     private static let codexQuestionRetryDelayNanoseconds: [UInt64] = [
         0,
