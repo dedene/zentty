@@ -122,6 +122,19 @@ final class TerminalOpenURLPolicyTests: XCTestCase {
         )
     }
 
+    func test_link_match_bare_domain_opens_as_https() throws {
+        let directory = try makeTemporaryDirectory()
+
+        XCTAssertEqual(
+            TerminalOpenURLPolicy.decision(
+                for: "linkedin.com/ad-library/search?companyName=Dashdot",
+                kind: .unknown,
+                workingDirectory: directory.path
+            ),
+            .open(URL(string: "https://linkedin.com/ad-library/search?companyName=Dashdot")!)
+        )
+    }
+
     func test_osc8_custom_scheme_asks_for_confirmation() {
         XCTAssertEqual(
             TerminalOpenURLPolicy.decision(for: "vscode://file/tmp/a.swift", kind: .osc8, workingDirectory: nil),
