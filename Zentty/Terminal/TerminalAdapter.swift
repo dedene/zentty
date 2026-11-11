@@ -104,6 +104,7 @@ enum TerminalUserPasteHold: Equatable, Sendable {
 }
 
 enum TerminalEvent: Equatable, Sendable {
+    case openURL(String, kind: TerminalOpenURLKind)
     case shellReady
     case progressReport(TerminalProgressReport)
     case commandFinished(exitCode: Int?, durationNanoseconds: UInt64)

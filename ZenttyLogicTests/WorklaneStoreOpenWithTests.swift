@@ -3,6 +3,31 @@ import XCTest
 
 @MainActor
 final class WorklaneStoreOpenWithTests: XCTestCase {
+    func test_terminal_link_uses_current_shell_directory_instead_of_stale_ghostty_directory() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("report.md")
+        try "report".write(to: file, atomically: true, encoding: .utf8)
+        let store = WorklaneStore()
+        let paneID = try XCTUnwrap(store.activeWorklane?.focusedPaneID)
+        let worklaneID = try XCTUnwrap(store.activeWorklaneID)
+        store.updateMetadata(paneID: paneID, metadata: TerminalMetadata(currentWorkingDirectory: "/old/repo"))
+        store.applyAgentStatusPayload(AgentStatusPayload(
+            worklaneID: worklaneID,
+            paneID: paneID,
+            signalKind: .paneContext,
+            state: nil,
+            paneContext: PaneShellContext(scope: .local, path: directory.path, home: nil, user: nil, host: nil),
+            origin: .shell, toolName: nil, text: nil, artifactKind: nil, artifactLabel: nil, artifactURL: nil
+        ))
+
+        XCTAssertEqual(
+            store.terminalOpenURLDecision(paneID: paneID, target: "report.md.", kind: .unknown),
+            .open(file.resolvingSymlinksInPath())
+        )
+    }
+
     func test_focused_open_with_context_uses_local_shell_context_path() throws {
         let store = WorklaneStore()
         let paneID = try XCTUnwrap(store.activeWorklane?.paneStripState.focusedPaneID)

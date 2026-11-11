@@ -901,14 +901,7 @@ final class LibghosttySurface: LibghosttySurfaceControlling, LibghosttySurfaceTe
         case .cellSize(let width, let height):
             hostView?.applyCellSizeUpdate(width: CGFloat(width), height: CGFloat(height))
         case .openURL(let urlString, let kind):
-            TerminalOpenURLAlert.perform(
-                TerminalOpenURLPolicy.decision(
-                    for: urlString,
-                    kind: kind,
-                    workingDirectory: metadata.currentWorkingDirectory
-                ),
-                window: hostView?.window
-            )
+            eventDidOccur(.openURL(urlString, kind: kind))
         case .mouseShape(let shape):
             hostView?.setMouseCursorShape(shape)
         }

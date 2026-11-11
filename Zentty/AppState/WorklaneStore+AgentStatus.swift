@@ -296,7 +296,7 @@ extension WorklaneStore {
                 auxiliaryState.agentStatus = auxiliaryState.agentReducerState.reducedStatus()
                 worklane.auxiliaryStateByPaneID[paneID] = auxiliaryState
             }
-        case .surfaceClosed, .userPasteHold:
+        case .surfaceClosed, .userPasteHold, .openURL:
             return
         case .desktopNotification(let notification):
             let title = AgentInteractionClassifier.trimmed(notification.title)
@@ -1011,13 +1011,15 @@ extension WorklaneStore {
         switch event {
         case .userInterrupted, .commandFinished, .userSubmittedInput, .progressReport:
             return true
-        case .shellReady, .desktopNotification, .userEditedInput, .userPasteHold, .surfaceClosed:
+        case .shellReady, .desktopNotification, .userEditedInput, .userPasteHold, .surfaceClosed, .openURL:
             return false
         }
     }
 
     private static func codexRestartEventDescription(_ event: TerminalEvent) -> String {
         switch event {
+        case .openURL:
+            return "openURL"
         case .shellReady:
             return "shellReady"
         case .progressReport(let report):

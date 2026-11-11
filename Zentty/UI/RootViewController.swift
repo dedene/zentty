@@ -1710,6 +1710,13 @@ final class RootViewController: NSViewController {
     }
 
     private func handleTerminalEvent(paneID: PaneID, event: TerminalEvent) {
+        if case .openURL(let target, let kind) = event {
+            if let decision = worklaneStore.terminalOpenURLDecision(paneID: paneID, target: target, kind: kind) {
+                TerminalOpenURLAlert.perform(decision, window: runtimeRegistry.runtime(for: paneID)?.hostView.window)
+            }
+            return
+        }
+
         if event == .surfaceClosed {
             paneCommands.handlePaneCloseResult(worklaneStore.closePaneFromShellExit(id: paneID))
             return

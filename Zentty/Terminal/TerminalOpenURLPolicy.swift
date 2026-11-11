@@ -1,7 +1,7 @@
 import Foundation
 
 /// Where libghostty says an open-URL target came from (ghostty_action_open_url_kind_e).
-enum TerminalOpenURLKind: Equatable {
+enum TerminalOpenURLKind: Equatable, Sendable {
     /// A `link` match in terminal output, such as the default URL regex. Untrusted, and may be a
     /// plain path like `~/notes.txt` instead of a URL.
     case unknown
