@@ -255,6 +255,96 @@ final class ProjectIconResolverTests: AppKitTestCase {
         XCTAssertNotNil(image)
     }
 
+    func test_source_without_objects_completes_promptly() throws {
+        let root = try makeProject { url in
+            let source = String(repeating: "ordinary source text ", count: 800)
+            try source.write(to: url.appendingPathComponent("index.html"), atomically: true, encoding: .utf8)
+        }
+        defer { cleanup(root) }
+
+        let resolver = ProjectIconResolver()
+        XCTAssertNil(try awaitResolve(resolver: resolver, cwd: root.path, timeout: 1))
+    }
+
+    func test_ts_object_detects_href_before_rel_across_lines() throws {
+        let root = try makeProject { url in
+            let icons = url.appendingPathComponent("icons")
+            try FileManager.default.createDirectory(at: icons, withIntermediateDirectories: true)
+            try writePNG(at: icons.appendingPathComponent("site.png"))
+            let source = """
+            export const links = () => [{
+                href: '/icons/site.png',
+                rel: 'shortcut icon',
+            }];
+            """
+            try source.write(to: url.appendingPathComponent("index.html"), atomically: true, encoding: .utf8)
+        }
+        defer { cleanup(root) }
+
+        XCTAssertNotNil(try awaitResolve(resolver: ProjectIconResolver(), cwd: root.path))
+    }
+
+    func test_ts_object_allows_nested_properties_after_icon_fields() throws {
+        let root = try makeProject { url in
+            let icons = url.appendingPathComponent("icons")
+            try FileManager.default.createDirectory(at: icons, withIntermediateDirectories: true)
+            try writePNG(at: icons.appendingPathComponent("site.png"))
+            let source = #"{ rel: "icon", href: "/icons/site.png", style: { color: "red" } }"#
+            try source.write(to: url.appendingPathComponent("index.html"), atomically: true, encoding: .utf8)
+        }
+        defer { cleanup(root) }
+
+        XCTAssertNotNil(try awaitResolve(resolver: ProjectIconResolver(), cwd: root.path))
+    }
+
+    func test_unclosed_objects_complete_promptly() throws {
+        let root = try makeProject { url in
+            let source = String(repeating: "{ ordinary source text ", count: 800)
+            try source.write(to: url.appendingPathComponent("index.html"), atomically: true, encoding: .utf8)
+        }
+        defer { cleanup(root) }
+
+        let resolver = ProjectIconResolver()
+        XCTAssertNil(try awaitResolve(resolver: resolver, cwd: root.path, timeout: 1))
+    }
+
+    func test_unclosed_link_tags_complete_promptly() throws {
+        let root = try makeProject { url in
+            let source = String(repeating: "<link rel=stylesheet ", count: 800)
+            try source.write(to: url.appendingPathComponent("index.html"), atomically: true, encoding: .utf8)
+        }
+        defer { cleanup(root) }
+
+        let resolver = ProjectIconResolver()
+        XCTAssertNil(try awaitResolve(resolver: resolver, cwd: root.path, timeout: 1))
+    }
+
+    func test_html_link_does_not_read_href_from_another_tag() throws {
+        let root = try makeProject { url in
+            let icons = url.appendingPathComponent("icons")
+            try FileManager.default.createDirectory(at: icons, withIntermediateDirectories: true)
+            try writePNG(at: icons.appendingPathComponent("site.png"))
+            let source = #"<link rel="icon" <script href="/icons/site.png">"#
+            try source.write(to: url.appendingPathComponent("index.html"), atomically: true, encoding: .utf8)
+        }
+        defer { cleanup(root) }
+
+        XCTAssertNil(try awaitResolve(resolver: ProjectIconResolver(), cwd: root.path))
+    }
+
+    func test_ts_object_does_not_read_href_from_nested_object() throws {
+        let root = try makeProject { url in
+            let icons = url.appendingPathComponent("icons")
+            try FileManager.default.createDirectory(at: icons, withIntermediateDirectories: true)
+            try writePNG(at: icons.appendingPathComponent("site.png"))
+            let source = #"{ rel: "icon", child: { href: "/icons/site.png" } }"#
+            try source.write(to: url.appendingPathComponent("index.html"), atomically: true, encoding: .utf8)
+        }
+        defer { cleanup(root) }
+
+        XCTAssertNil(try awaitResolve(resolver: ProjectIconResolver(), cwd: root.path))
+    }
+
     // MARK: - Symlinks
 
     func test_symlink_inside_cwd_accepted() throws {

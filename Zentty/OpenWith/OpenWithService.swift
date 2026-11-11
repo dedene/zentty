@@ -26,14 +26,17 @@ final class OpenWithService: OpenWithServing {
 
     private let workspace: NSWorkspace
     private let fileManager: FileManager
+    private let applicationLocator: InstalledApplicationLocator
     private var iconCache: [String: CachedIcon] = [:]
 
     init(
         workspace: NSWorkspace = .shared,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        applicationLocator: InstalledApplicationLocator = .shared
     ) {
         self.workspace = workspace
         self.fileManager = fileManager
+        self.applicationLocator = applicationLocator
     }
 
     func detectedTargets(preferences: AppConfig.OpenWith) -> [OpenWithDetectedTarget] {
@@ -191,7 +194,7 @@ final class OpenWithService: OpenWithServing {
         switch id {
         case .finder:
             let finderURL = URL(fileURLWithPath: "/System/Library/CoreServices/Finder.app")
-            return fileManager.fileExists(atPath: finderURL.path) ? finderURL : nil
+            return applicationLocator.fileExists(atPath: finderURL.path) ? finderURL : nil
         case .vscode:
             return applicationURL(
                 bundleIdentifiers: ["com.microsoft.VSCode"],
@@ -308,45 +311,15 @@ final class OpenWithService: OpenWithServing {
         exactNames: [String],
         prefixNames: [String] = []
     ) -> URL? {
-        for bundleIdentifier in bundleIdentifiers {
-            if let applicationURL = workspace.urlForApplication(withBundleIdentifier: bundleIdentifier) {
-                return applicationURL
-            }
-        }
-
-        let searchDirectories = [
-            URL(fileURLWithPath: "/Applications", isDirectory: true),
-            fileManager.homeDirectoryForCurrentUser.appendingPathComponent("Applications", isDirectory: true),
-        ]
-        for directoryURL in searchDirectories {
-            for exactName in exactNames {
-                let candidateURL = directoryURL.appendingPathComponent(exactName, isDirectory: true)
-                if fileManager.fileExists(atPath: candidateURL.path) {
-                    return candidateURL
-                }
-            }
-
-            guard let entries = try? fileManager.contentsOfDirectory(
-                at: directoryURL,
-                includingPropertiesForKeys: nil,
-                options: [.skipsHiddenFiles]
-            ) else {
-                continue
-            }
-
-            if let prefixMatch = entries.first(where: { url in
-                let name = url.lastPathComponent
-                return prefixNames.contains(where: { name.hasPrefix($0) }) && name.hasSuffix(".app")
-            }) {
-                return prefixMatch
-            }
-        }
-
-        return nil
+        applicationLocator.applicationURL(
+            bundleIdentifiers: bundleIdentifiers,
+            exactNames: exactNames,
+            prefixNames: prefixNames
+        )
     }
 
     private func isReadableApplication(at path: String) -> Bool {
-        path.hasSuffix(".app") && fileManager.fileExists(atPath: path)
+        path.hasSuffix(".app") && applicationLocator.fileExists(atPath: path)
     }
 
     private func runOpen(arguments: [String]) -> Bool {

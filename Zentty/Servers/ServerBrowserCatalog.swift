@@ -208,28 +208,6 @@ enum ServerBrowserCatalog {
         return nil
     }
 
-    @MainActor
-    static func targets(
-        preferences: AppConfig.ServerDetection,
-        workspace: NSWorkspace = .shared,
-        fileManager: FileManager = .default,
-        currentBundleIdentifier: String? = Bundle.main.bundleIdentifier,
-        isApplicationAvailable: (String) -> Bool = { FileManager.default.isReadableFile(atPath: $0) }
-    ) -> [ServerBrowserTarget] {
-        let resolvedBuiltIns = resolveBuiltInTargets(
-            workspace: workspace,
-            fileManager: fileManager,
-            currentBundleIdentifier: currentBundleIdentifier,
-            isApplicationAvailable: isApplicationAvailable
-        )
-        return targets(
-            preferences: preferences,
-            resolvedBuiltIns: resolvedBuiltIns,
-            currentBundleIdentifier: currentBundleIdentifier,
-            isApplicationAvailable: isApplicationAvailable
-        )
-    }
-
     static func targets(
         preferences: AppConfig.ServerDetection,
         resolvedBuiltIns: [ServerBrowserTarget],
@@ -347,13 +325,23 @@ enum ServerBrowserCatalog {
         currentBundleIdentifier: String? = Bundle.main.bundleIdentifier,
         isApplicationAvailable: (String) -> Bool = { FileManager.default.isReadableFile(atPath: $0) }
     ) -> ServerBrowserTarget {
-        let browserTargets = targets(
+        preferredTarget(
             preferences: preferences,
-            resolvedBuiltIns: resolvedBuiltIns,
-            currentBundleIdentifier: currentBundleIdentifier,
-            isApplicationAvailable: isApplicationAvailable
+            among: targets(
+                preferences: preferences,
+                resolvedBuiltIns: resolvedBuiltIns,
+                currentBundleIdentifier: currentBundleIdentifier,
+                isApplicationAvailable: isApplicationAvailable
+            )
         )
+    }
 
+    /// Picks the preferred browser from an already-built `targets(...)` list,
+    /// whose first entry is always the system default.
+    static func preferredTarget(
+        preferences: AppConfig.ServerDetection,
+        among browserTargets: [ServerBrowserTarget]
+    ) -> ServerBrowserTarget {
         if let preferred = browserTargets.first(where: {
             preferenceMatchesTarget(preferences.preferredBrowserID, target: $0) && $0.isAvailable
         }) {
@@ -364,51 +352,25 @@ enum ServerBrowserCatalog {
     }
 
     @MainActor
-    static func preferredTarget(
-        preferences: AppConfig.ServerDetection,
-        workspace: NSWorkspace = .shared,
-        fileManager: FileManager = .default,
-        currentBundleIdentifier: String? = Bundle.main.bundleIdentifier,
-        isApplicationAvailable: (String) -> Bool = { FileManager.default.isReadableFile(atPath: $0) }
-    ) -> ServerBrowserTarget {
-        let resolvedBuiltIns = resolveBuiltInTargets(
-            workspace: workspace,
-            fileManager: fileManager,
-            currentBundleIdentifier: currentBundleIdentifier,
-            isApplicationAvailable: isApplicationAvailable
-        )
-        return preferredTarget(
-            preferences: preferences,
-            resolvedBuiltIns: resolvedBuiltIns,
-            currentBundleIdentifier: currentBundleIdentifier,
-            isApplicationAvailable: isApplicationAvailable
-        )
-    }
-
-    @MainActor
-    private static func resolveBuiltInTargets(
-        workspace: NSWorkspace,
-        fileManager: FileManager,
-        currentBundleIdentifier: String?,
-        isApplicationAvailable: (String) -> Bool
+    static func resolveBuiltInTargets(
+        applicationLocator: InstalledApplicationLocator,
+        currentBundleIdentifier: String? = Bundle.main.bundleIdentifier
     ) -> [ServerBrowserTarget] {
         var seenBundleIDs: Set<String> = []
         var results: [ServerBrowserTarget] = []
 
         for builtIn in macOSBuiltInBrowsers {
             guard
-                let appURL = applicationURL(
-                    workspace: workspace,
-                    fileManager: fileManager,
+                let appURL = applicationLocator.applicationURL(
                     bundleIdentifiers: builtIn.bundleIdentifiers,
                     exactNames: builtIn.exactAppNames,
                     prefixNames: builtIn.prefixAppNames
-                )
+                )?.standardizedFileURL
             else {
                 continue
             }
 
-            guard isApplicationAvailable(appURL.path) else {
+            guard applicationLocator.isReadableFile(atPath: appURL.path) else {
                 continue
             }
 
@@ -438,51 +400,6 @@ enum ServerBrowserCatalog {
         }
 
         return results
-    }
-
-    private static func applicationURL(
-        workspace: NSWorkspace,
-        fileManager: FileManager,
-        bundleIdentifiers: [String],
-        exactNames: [String],
-        prefixNames: [String]
-    ) -> URL? {
-        for bundleIdentifier in bundleIdentifiers {
-            if let applicationURL = workspace.urlForApplication(withBundleIdentifier: bundleIdentifier) {
-                return applicationURL.standardizedFileURL
-            }
-        }
-
-        let searchDirectories = [
-            URL(fileURLWithPath: "/Applications", isDirectory: true),
-            fileManager.homeDirectoryForCurrentUser.appendingPathComponent("Applications", isDirectory: true),
-        ]
-
-        for directoryURL in searchDirectories {
-            for exactName in exactNames {
-                let candidateURL = directoryURL.appendingPathComponent(exactName, isDirectory: true).standardizedFileURL
-                if fileManager.fileExists(atPath: candidateURL.path) {
-                    return candidateURL
-                }
-            }
-
-            guard let entries = try? fileManager.contentsOfDirectory(
-                at: directoryURL,
-                includingPropertiesForKeys: nil,
-                options: [.skipsHiddenFiles]
-            ) else {
-                continue
-            }
-
-            if let prefixMatch = entries.first(where: { url in
-                let name = url.lastPathComponent
-                return prefixNames.contains(where: { name.hasPrefix($0) }) && name.hasSuffix(".app")
-            }) {
-                return prefixMatch.standardizedFileURL
-            }
-        }
-
-        return nil
     }
 
     private static func isNormalApplicationPath(_ path: String) -> Bool {

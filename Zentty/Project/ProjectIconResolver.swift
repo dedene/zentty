@@ -75,8 +75,10 @@ final class ProjectIconResolver {
         "Resources/Assets.xcassets/AppIcon.appiconset/Contents.json",
     ]
 
-    private static let linkIconHtmlPattern = #"<link\b(?=[^>]*\brel=["'](?:icon|shortcut icon)["'])(?=[^>]*\bhref=["']([^"'?]+))[^>]*>"#
-    private static let linkIconObjPattern  = #"(?=[^}]*\brel\s*:\s*["'](?:icon|shortcut icon)["'])(?=[^}]*\bhref\s*:\s*["']([^"'?]+))[^}]*"#
+    // A literal opener and scans that stop at either delimiter prevent retrying the
+    // remaining file at every character (quadratic on source without an icon).
+    private static let linkIconHtmlPattern = #"<link\b(?=[^<>]*\brel=["'](?:icon|shortcut icon)["'])(?=[^<>]*\bhref=["']([^<>"'?]+))[^<>]*>"#
+    private static let linkIconObjPattern  = #"\{(?=[^{}]*\brel\s*:\s*["'](?:icon|shortcut icon)["'])(?=[^{}]*\bhref\s*:\s*["']([^{}"'?]+))"#
 
     private static let linkIconHtmlRegex: NSRegularExpression? = {
         try? NSRegularExpression(pattern: linkIconHtmlPattern, options: [.caseInsensitive])

@@ -16,24 +16,49 @@ final class ServerOpenService: ServerOpening {
         case missing
     }
 
-    private let workspace: NSWorkspace
-    private var iconCache: [String: CachedIcon] = [:]
+    private struct BrowserList {
+        let generation: Int
+        let config: AppConfig.ServerDetection
+        let browsers: [ServerBrowserTarget]
+    }
 
-    init(workspace: NSWorkspace = .shared) {
+    private let workspace: NSWorkspace
+    private let applicationLocator: InstalledApplicationLocator
+    private var iconCache: [String: CachedIcon] = [:]
+    // The server chrome asks for the preferred browser on every focus change;
+    // keep the built list until the installed apps or the config change.
+    private var browserList: BrowserList?
+
+    init(
+        workspace: NSWorkspace = .shared,
+        applicationLocator: InstalledApplicationLocator = .shared
+    ) {
         self.workspace = workspace
+        self.applicationLocator = applicationLocator
     }
 
     func availableBrowsers(config: AppConfig.ServerDetection) -> [ServerBrowserTarget] {
-        ServerBrowserCatalog.targets(
+        if let browserList,
+           browserList.generation == applicationLocator.generation,
+           browserList.config == config
+        {
+            return browserList.browsers
+        }
+
+        let locator = applicationLocator
+        let browsers = ServerBrowserCatalog.targets(
             preferences: config,
-            workspace: workspace
+            resolvedBuiltIns: ServerBrowserCatalog.resolveBuiltInTargets(applicationLocator: locator),
+            isApplicationAvailable: { locator.isReadableFile(atPath: $0) }
         )
+        browserList = BrowserList(generation: locator.generation, config: config, browsers: browsers)
+        return browsers
     }
 
     func preferredBrowser(config: AppConfig.ServerDetection) -> ServerBrowserTarget {
         ServerBrowserCatalog.preferredTarget(
             preferences: config,
-            workspace: workspace
+            among: availableBrowsers(config: config)
         )
     }
 

@@ -364,6 +364,7 @@
 		48E0222A69497B2E648F66CD /* PaneEventMonitorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAE496F1AF7FA5EAE6EBA324 /* PaneEventMonitorTests.swift */; };
 		48ECF9EAFA83C8B95CB644E3 /* PaneDisplayIdentityResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC039C620770B29A8DC711C1 /* PaneDisplayIdentityResolver.swift */; };
 		493E2A5FDF88B1B75E958F29 /* ServerListenerScannerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6C4B3E5FFC590B5695ACC9C /* ServerListenerScannerTests.swift */; };
+		4943C5EC420207C53291F930 /* InstalledApplicationLocatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE5BD37173CFC07659660028 /* InstalledApplicationLocatorTests.swift */; };
 		4946D459903D7753760FAD68 /* FloatThrowProjection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 338800E8A530EA8B80BD55CD /* FloatThrowProjection.swift */; };
 		49D2D272E64190A5EBC56C35 /* AgentHistoryBatchBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 744EDD525752691B41921D74 /* AgentHistoryBatchBuilder.swift */; };
 		49E1E625DF9A0E03063EFD81 /* GlobalSearchFocusChoreographerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D95ED44A37CDE51882628D20 /* GlobalSearchFocusChoreographerTests.swift */; };
@@ -940,6 +941,7 @@
 		C15ADA95B02F4E52077B2647 /* FloatResizeCursorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37CD24C7F0D442E639334CFE /* FloatResizeCursorTests.swift */; };
 		C1AF19B83286DCF4471C6DE2 /* GrokHistorySourceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21A3FE6550E9246E785E57AC /* GrokHistorySourceTests.swift */; };
 		C1E6E40E7FEAE93149414E37 /* PaneStripStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E469BF2F5A021DBF256E8D20 /* PaneStripStateTests.swift */; };
+		C2486ACC532DBE2F7AF619E7 /* InstalledApplicationLocator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1ACFAAF96E90AE198D76B438 /* InstalledApplicationLocator.swift */; };
 		C260D489DCA894A4442EC551 /* AgentHistoryValue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 163E01FC8ED2FDABF5EF8D47 /* AgentHistoryValue.swift */; };
 		C31068BF39D01A42D646DF04 /* FloatConsumerSurfaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8B61C65D9981C56285E4CC8 /* FloatConsumerSurfaceTests.swift */; };
 		C32E363F24F23C57C1320536 /* SessionRestoreStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAEEA79E63463D7882B80FE0 /* SessionRestoreStore.swift */; };
@@ -1396,6 +1398,7 @@
 		1AA030819646F8BA3D60AD07 /* AgentHistoryOffMainRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHistoryOffMainRunner.swift; sourceTree = "<group>"; };
 		1AB0C0B38C36D85DBCBACF25 /* MenuBarFleetState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarFleetState.swift; sourceTree = "<group>"; };
 		1AB93DE6432DD894D0CA2C72 /* SidebarBookmarksButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarBookmarksButton.swift; sourceTree = "<group>"; };
+		1ACFAAF96E90AE198D76B438 /* InstalledApplicationLocator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InstalledApplicationLocator.swift; sourceTree = "<group>"; };
 		1AE59622A5FC54739F5CC7AA /* ZenttyCLIDiscoveryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZenttyCLIDiscoveryTests.swift; sourceTree = "<group>"; };
 		1B012FD12A48B0C31EE3634C /* CommandPaletteBackdropTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPaletteBackdropTests.swift; sourceTree = "<group>"; };
 		1B399FB6159D76FB9344E21A /* FloatNeedsInputAnnouncer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatNeedsInputAnnouncer.swift; sourceTree = "<group>"; };
@@ -2165,6 +2168,7 @@
 		BD913A7CC4DACE3AE5BF3685 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		BDDCADD851AB62CAFFF43AF3 /* SettingsSectionViewControllers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSectionViewControllers.swift; sourceTree = "<group>"; };
 		BE256725D568E7583890592B /* SidebarShimmerCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarShimmerCoordinatorTests.swift; sourceTree = "<group>"; };
+		BE5BD37173CFC07659660028 /* InstalledApplicationLocatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InstalledApplicationLocatorTests.swift; sourceTree = "<group>"; };
 		BE5F26819E55CE726CE5094E /* AgentHistoryController+Search.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentHistoryController+Search.swift"; sourceTree = "<group>"; };
 		BEA67AC0576349EF49539363 /* TaskManagerWindowControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskManagerWindowControllerTests.swift; sourceTree = "<group>"; };
 		BF02658BAF6F6B57713BBD05 /* ShortcutsSettingsSectionViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutsSettingsSectionViewController.swift; sourceTree = "<group>"; };
@@ -3010,6 +3014,7 @@
 			children = (
 				BCFB3084B38247D19A4B9381 /* ExternalOpenDirectories.swift */,
 				68CFF36A010130E00ACF80FB /* FileManager+SymlinkWrite.swift */,
+				1ACFAAF96E90AE198D76B438 /* InstalledApplicationLocator.swift */,
 				AB5FC2AFBC2BB1C60DCC9ACA /* RuntimeStateRelocation.swift */,
 				7F40B71CFF69AD6569813709 /* SubprocessRunner.swift */,
 				E371873D98099C28D7086CC5 /* SubprocessRunner+ProcessGroup.swift */,
@@ -3930,6 +3935,7 @@
 				4AA2D93CEEA2B5AAADA93935 /* HistorySyntheticCorpus.swift */,
 				8AD25445820D4EE47AC8D422 /* HistoryToolbarButtonTests.swift */,
 				9760F3B7EDC0087FA89778B9 /* Info.plist */,
+				BE5BD37173CFC07659660028 /* InstalledApplicationLocatorTests.swift */,
 				8A4B8AFFD14D56E38F462EDB /* JSONLineSnifferTests.swift */,
 				284A64285331B5B0871088FC /* JSONLTailReaderTests.swift */,
 				2B076EBD34D3A673A0937579 /* KeyboardShortcutResolverTests.swift */,
@@ -4657,6 +4663,7 @@
 				445A947D2C4F7DCD54F48524 /* HistorySnippetBuilderTests.swift in Sources */,
 				5C5429C3A0CAE1B66391F8B2 /* HistorySyntheticCorpus.swift in Sources */,
 				0A1E4A8C447E448794C83385 /* HistoryToolbarButtonTests.swift in Sources */,
+				4943C5EC420207C53291F930 /* InstalledApplicationLocatorTests.swift in Sources */,
 				D4FFBD458BAFEBFF91CAEAAC /* JSONLTailReaderTests.swift in Sources */,
 				3B48B3F81BA924C37F07B501 /* JSONLineSnifferTests.swift in Sources */,
 				5DC7AC548DD0073978E02681 /* KeyboardShortcutResolverTests.swift in Sources */,
@@ -5214,6 +5221,7 @@
 				5461D186A0DBC84069EDEAF7 /* HistoryToolbarButton.swift in Sources */,
 				D33E6B305950A8E1822AA404 /* HookCanonicalReEmitter.swift in Sources */,
 				A7E403E183B0B264A159FD54 /* HooksInstalling.swift in Sources */,
+				C2486ACC532DBE2F7AF619E7 /* InstalledApplicationLocator.swift in Sources */,
 				2BC7421FF9D00CF7851A5E32 /* JSONCRelaxedParse.swift in Sources */,
 				69EE6C583CFC2132C81D9491 /* JSONKeyAccess.swift in Sources */,
 				94C8747AA1C37DE29C0EBBBD /* JSONLTailReader.swift in Sources */,

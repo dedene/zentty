@@ -286,7 +286,10 @@ else
     warn "no Developer ID Application identity for team ${TEAM_ID} found; signing ad hoc."
   fi
   warn "ad hoc signatures change every build, so macOS permission prompts will reappear."
-  signing_args=(CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM=)
+  # Hardened runtime enables library validation, which rejects the embedded
+  # ad hoc signed frameworks (Sparkle, Sentry): an ad hoc signature has no
+  # Team ID, so dyld refuses to load them and the app dies at launch.
+  signing_args=(CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= ENABLE_HARDENED_RUNTIME=NO)
 fi
 
 # --- Build -------------------------------------------------------------------

@@ -129,4 +129,61 @@ final class TerminalOpenURLResolverTests: XCTestCase {
 
         XCTAssertEqual(url.path, URL(filePath: expanded).path)
     }
+
+    // MARK: - Scheme-less web addresses
+
+    /// Ghostty's link regex matches `example.com/path` as a relative path, so without this the
+    /// click resolved to `<cwd>/example.com/path` and was blocked as a missing file.
+    func test_bare_domain_with_path_and_query_opens_as_https() {
+        let url = TerminalOpenURLResolver.resolve(
+            "linkedin.com/ad-library/search?companyName=Dashdot",
+            workingDirectory: "/repo",
+            fileExists: { _ in false }
+        )
+
+        XCTAssertEqual(url.absoluteString, "https://linkedin.com/ad-library/search?companyName=Dashdot")
+    }
+
+    func test_bare_domain_variants_open_as_https() {
+        let cases = [
+            "www.example.com": "https://www.example.com",
+            "docs.example.co.uk/guide#intro": "https://docs.example.co.uk/guide#intro",
+            "my-site.dev?ref=terminal": "https://my-site.dev?ref=terminal",
+        ]
+        for (raw, expected) in cases {
+            let url = TerminalOpenURLResolver.resolve(raw, workingDirectory: "/repo", fileExists: { _ in false })
+            XCTAssertEqual(url.absoluteString, expected, raw)
+        }
+    }
+
+    func test_existing_local_path_wins_over_bare_domain() {
+        let existing: Set<String> = ["/repo/example.com/index.html"]
+
+        let url = TerminalOpenURLResolver.resolve(
+            "example.com/index.html",
+            workingDirectory: "/repo",
+            fileExists: existing.contains
+        )
+
+        XCTAssertTrue(url.isFileURL)
+        XCTAssertEqual(url.path, "/repo/example.com/index.html")
+    }
+
+    func test_path_like_targets_are_not_mistaken_for_domains() {
+        for raw in [
+            "README.md",
+            "docs/missing.md",
+            "./example.com/x",
+            "../example.com/x",
+            "~/example.com/x",
+            "/example.com/x",
+            "1.2/notes.txt",
+            "foo..com/x",
+            "-bad.com/x",
+            "example.com/has space",
+        ] {
+            let url = TerminalOpenURLResolver.resolve(raw, workingDirectory: "/repo", fileExists: { _ in false })
+            XCTAssertTrue(url.isFileURL, "\(raw) resolved to \(url.absoluteString)")
+        }
+    }
 }
