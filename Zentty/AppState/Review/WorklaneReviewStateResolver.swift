@@ -158,6 +158,7 @@ final class WorklaneReviewStateResolver {
 
     private enum GitHubRepositoryResolution: Equatable {
         case repository(String)
+        case gitLabProject(String)
         case noGitHubRepository
         case unresolved
     }
@@ -172,6 +173,7 @@ final class WorklaneReviewStateResolver {
 
     private enum RemoteLookupOutcome: Equatable {
         case repository(String)
+        case gitLabProject(String)
         case notGitHub
         case failed
     }
@@ -192,6 +194,8 @@ final class WorklaneReviewStateResolver {
         let mergeable: String?
         /// Rolled-up CI check contexts (CheckRun + StatusContext entries).
         let statusCheckRollup: [StatusCheckRollupEntry]?
+        /// GitLab only: the pipeline is blocked until someone starts a manual job.
+        var isWaitingForManualAction: Bool? = nil
     }
 
     private struct StatusCheckRollupEntry: Decodable {
@@ -201,6 +205,41 @@ final class WorklaneReviewStateResolver {
         let status: String?
         /// CheckRun conclusion when COMPLETED: SUCCESS | FAILURE | NEUTRAL | CANCELLED | TIMED_OUT | ...
         let conclusion: String?
+    }
+
+    private struct MergeRequestPayload: Decodable {
+        struct Pipeline: Decodable {
+            let status: String?
+        }
+
+        let iid: Int
+        let webURL: URL?
+        let state: String
+        let draft: Bool
+        let hasConflicts: Bool?
+        let detailedMergeStatus: String?
+        let headPipeline: Pipeline?
+        let sourceProjectID: Int?
+        let targetProjectID: Int?
+
+        var isFromFork: Bool {
+            guard let sourceProjectID, let targetProjectID else {
+                return false
+            }
+            return sourceProjectID != targetProjectID
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case iid
+            case webURL = "web_url"
+            case state
+            case draft
+            case hasConflicts = "has_conflicts"
+            case detailedMergeStatus = "detailed_merge_status"
+            case headPipeline = "head_pipeline"
+            case sourceProjectID = "source_project_id"
+            case targetProjectID = "target_project_id"
+        }
     }
 
     /// How long a cached resolution is served before a non-forced read refetches it.
@@ -462,6 +501,14 @@ final class WorklaneReviewStateResolver {
                 branch: branch,
                 reason: "could not resolve GitHub repository"
             )
+        case .gitLabProject(let project):
+            return await loadMergeRequestResolution(
+                project: project,
+                path: path,
+                hostInfo: discovered.hostInfo,
+                branch: branch,
+                fallback: fallback
+            )
         case .repository(let repository):
             let pullRequestResult = await runCommand(
                 arguments: [
@@ -491,26 +538,110 @@ final class WorklaneReviewStateResolver {
                 )
             }
 
-            let pullRequest = WorklanePullRequestSummary(
-                number: pullRequestPayload.number,
-                url: pullRequestPayload.url,
-                state: pullRequestState(from: pullRequestPayload)
+            return reviewResolution(from: pullRequestPayload, kind: .pullRequest, hostInfo: discovered.hostInfo, branch: branch)
+        }
+    }
+
+    private func reviewResolution(
+        from payload: PullRequestPayload,
+        kind: WorklanePullRequestSummary.Kind,
+        hostInfo: GitRemoteHostInfo?,
+        branch: String
+    ) -> WorklaneReviewResolution {
+        let pullRequest = WorklanePullRequestSummary(
+            number: payload.number,
+            url: payload.url,
+            state: pullRequestState(from: payload),
+            kind: kind
+        )
+        let checksState = aggregateChecksState(from: payload.statusCheckRollup)
+        let chips = reviewChips(for: pullRequest, payload: payload, checksState: checksState)
+        let branchURL = hostInfo?.branchURL(branch: branch)
+        return WorklaneReviewResolution(
+            reviewState: WorklaneReviewState(
+                branch: branch,
+                branchURL: branchURL,
+                pullRequest: pullRequest,
+                reviewChips: chips,
+                reviewFetchedAt: now(),
+                reviewRefreshFailed: false,
+                checksState: checksState
             )
-            let checksState = aggregateChecksState(from: pullRequestPayload.statusCheckRollup)
-            let chips = reviewChips(for: pullRequest, payload: pullRequestPayload, checksState: checksState)
-            let branchURL = discovered.hostInfo?.branchURL(branch: branch)
-            return WorklaneReviewResolution(
-                reviewState: WorklaneReviewState(
+        )
+    }
+
+    private func loadMergeRequestResolution(
+        project: String,
+        path: String,
+        hostInfo: GitRemoteHostInfo?,
+        branch: String,
+        fallback: WorklaneReviewResolution?
+    ) async -> WorklaneReviewResolution {
+        // `glab mr view <branch>` fails when a branch has several merge requests and reads a numeric
+        // branch name as a merge request ID, so select the merge request first and view it by ID.
+        // `glab mr list` only returns its first page, so open merge requests are searched on their
+        // own: an old open one must not fall behind newer merged ones.
+        let listStates: [[String]] = [[], ["--all"]]
+        var selectedMergeRequest: MergeRequestPayload?
+        for states in listStates where selectedMergeRequest == nil {
+            let listResult = await runCommand(
+                arguments: ["glab", "mr", "list"] + states + ["--source-branch", branch, "-R", project, "-F", "json"],
+                currentDirectoryPath: path
+            )
+            guard listResult.terminationStatus == 0,
+                  let mergeRequests = decodeMergeRequests(from: listResult.stdout) else {
+                return mergeRequestFailureResolution(
+                    fallback: fallback,
+                    hostInfo: hostInfo,
                     branch: branch,
-                    branchURL: branchURL,
-                    pullRequest: pullRequest,
-                    reviewChips: chips,
-                    reviewFetchedAt: now(),
-                    reviewRefreshFailed: false,
-                    checksState: checksState
+                    reason: "glab mr list failed with status \(listResult.terminationStatus)"
                 )
+            }
+            selectedMergeRequest = preferredMergeRequest(from: mergeRequests)
+        }
+
+        guard let selected = selectedMergeRequest else {
+            return branchOnlyResolution(branch: branch, hostInfo: hostInfo)
+        }
+
+        guard selected.state == "opened" else {
+            return reviewResolution(from: pullRequestPayload(from: selected), kind: .mergeRequest, hostInfo: hostInfo, branch: branch)
+        }
+
+        let viewResult = await runCommand(
+            arguments: ["glab", "mr", "view", String(selected.iid), "-R", project, "-F", "json"],
+            currentDirectoryPath: path
+        )
+        guard viewResult.terminationStatus == 0,
+              let payload = decodeMergeRequest(from: viewResult.stdout) else {
+            return mergeRequestFailureResolution(
+                fallback: fallback,
+                hostInfo: hostInfo,
+                branch: branch,
+                reason: "glab mr view failed with status \(viewResult.terminationStatus)"
             )
         }
+
+        return reviewResolution(from: pullRequestPayload(from: payload), kind: .mergeRequest, hostInfo: hostInfo, branch: branch)
+    }
+
+    /// `glab` is optional: without it (or signed out) GitLab repos keep their branch link. A failure
+    /// only counts as a failed refresh when there is a merge request to preserve.
+    private func mergeRequestFailureResolution(
+        fallback: WorklaneReviewResolution?,
+        hostInfo: GitRemoteHostInfo?,
+        branch: String,
+        reason: String
+    ) -> WorklaneReviewResolution {
+        guard fallback?.reviewState?.pullRequest != nil else {
+            return branchOnlyResolution(branch: branch, hostInfo: hostInfo)
+        }
+        return failureResolution(fallback: fallback, branch: branch, reason: reason)
+    }
+
+    private func preferredMergeRequest(from mergeRequests: [MergeRequestPayload]) -> MergeRequestPayload? {
+        let ownMergeRequests = mergeRequests.filter { !$0.isFromFork }
+        return ownMergeRequests.first { $0.state == "opened" } ?? ownMergeRequests.first
     }
 
     /// Result to show when a refresh fails transiently (bad exit, decode failure, unresolved repo).
@@ -607,19 +738,24 @@ final class WorklaneReviewStateResolver {
         hostInfo: inout GitRemoteHostInfo?
     ) async -> GitHubRepositoryResolution {
         var hadLookupFailure = false
+        var gitLabProject: String?
 
-        if let upstreamRemote = await resolveUpstreamRemoteName(path: path, branch: branch),
-           case .repository(let repository) = await resolveGitHubRepositorySpecifier(
-            forRemoteNamed: upstreamRemote,
-            path: path,
-            hostInfo: &hostInfo
-           ) {
-            return .repository(repository)
+        if let upstreamRemote = await resolveUpstreamRemoteName(path: path, branch: branch) {
+            switch await resolveGitHubRepositorySpecifier(forRemoteNamed: upstreamRemote, path: path, hostInfo: &hostInfo) {
+            case .repository(let repository):
+                return .repository(repository)
+            case .gitLabProject(let project):
+                return .gitLabProject(project)
+            case .notGitHub, .failed:
+                break
+            }
         }
 
         switch await resolveGitHubRepositorySpecifier(forRemoteNamed: "origin", path: path, hostInfo: &hostInfo) {
         case .repository(let repository):
             return .repository(repository)
+        case .gitLabProject(let project):
+            gitLabProject = project
         case .failed:
             hadLookupFailure = true
         case .notGitHub:
@@ -631,7 +767,8 @@ final class WorklaneReviewStateResolver {
             currentDirectoryPath: path
         )
         guard remoteListResult.terminationStatus == 0 else {
-            return hadLookupFailure ? .unresolved : .noGitHubRepository
+            return gitLabProject.map(GitHubRepositoryResolution.gitLabProject)
+                ?? (hadLookupFailure ? .unresolved : .noGitHubRepository)
         }
 
         let remoteNames = String(decoding: remoteListResult.stdout, as: UTF8.self)
@@ -643,6 +780,8 @@ final class WorklaneReviewStateResolver {
             switch await resolveGitHubRepositorySpecifier(forRemoteNamed: remoteName, path: path, hostInfo: &hostInfo) {
             case .repository(let repository):
                 return .repository(repository)
+            case .gitLabProject(let project):
+                gitLabProject = gitLabProject ?? project
             case .failed:
                 hadLookupFailure = true
             case .notGitHub:
@@ -650,7 +789,8 @@ final class WorklaneReviewStateResolver {
             }
         }
 
-        return hadLookupFailure ? .unresolved : .noGitHubRepository
+        return gitLabProject.map(GitHubRepositoryResolution.gitLabProject)
+            ?? (hadLookupFailure ? .unresolved : .noGitHubRepository)
     }
 
     private func resolveUpstreamRemoteName(path: String, branch: String) async -> String? {
@@ -683,12 +823,17 @@ final class WorklaneReviewStateResolver {
             return .notGitHub
         }
 
+        let parsedHostInfo = GitRemoteHostInfo.parse(remoteURL: remoteURL)
         if hostInfo == nil {
-            hostInfo = GitRemoteHostInfo.parse(remoteURL: remoteURL)
+            hostInfo = parsedHostInfo
         }
 
         if let repository = githubRepositorySpecifier(from: remoteURL) {
             return .repository(repository)
+        }
+
+        if let parsedHostInfo, parsedHostInfo.kind == .gitlab {
+            return .gitLabProject(parsedHostInfo.projectURL)
         }
 
         return .notGitHub
@@ -779,6 +924,53 @@ final class WorklaneReviewStateResolver {
         try? JSONDecoder().decode(PullRequestPayload.self, from: data)
     }
 
+    private func decodeMergeRequests(from data: Data) -> [MergeRequestPayload]? {
+        try? JSONDecoder().decode([MergeRequestPayload].self, from: data)
+    }
+
+    private func decodeMergeRequest(from data: Data) -> MergeRequestPayload? {
+        try? JSONDecoder().decode(MergeRequestPayload.self, from: data)
+    }
+
+    private func pullRequestPayload(from mergeRequest: MergeRequestPayload) -> PullRequestPayload {
+        PullRequestPayload(
+            number: mergeRequest.iid,
+            url: mergeRequest.webURL,
+            isDraft: mergeRequest.draft,
+            state: mergeRequest.state,
+            reviewDecision: reviewDecision(fromDetailedMergeStatus: mergeRequest.detailedMergeStatus),
+            mergeable: mergeRequest.hasConflicts == true ? "CONFLICTING" : nil,
+            statusCheckRollup: statusCheckRollup(fromPipelineStatus: mergeRequest.headPipeline?.status),
+            isWaitingForManualAction: mergeRequest.headPipeline?.status == "manual"
+        )
+    }
+
+    private func reviewDecision(fromDetailedMergeStatus status: String?) -> String? {
+        switch status {
+        case "not_approved":
+            return "REVIEW_REQUIRED"
+        case "requested_changes":
+            return "CHANGES_REQUESTED"
+        default:
+            return nil
+        }
+    }
+
+    private func statusCheckRollup(fromPipelineStatus status: String?) -> [StatusCheckRollupEntry]? {
+        let state: String
+        switch status {
+        case "success":
+            state = "SUCCESS"
+        case "failed", "canceled":
+            state = "FAILURE"
+        case "created", "waiting_for_resource", "preparing", "pending", "running", "scheduled", "canceling":
+            state = "PENDING"
+        default:
+            return nil
+        }
+        return [StatusCheckRollupEntry(state: state, status: nil, conclusion: nil)]
+    }
+
     private func pullRequestState(from payload: PullRequestPayload) -> WorklanePullRequestState {
         switch payload.state.uppercased() {
         case "MERGED":
@@ -809,7 +1001,8 @@ final class WorklaneReviewStateResolver {
         chips.append(contentsOf: checksChips(
             for: pullRequest.state,
             checksState: checksState,
-            rollup: payload.statusCheckRollup
+            rollup: payload.statusCheckRollup,
+            isWaitingForManualAction: payload.isWaitingForManualAction == true
         ))
 
         if pullRequest.state == .open, isConflicting(payload.mergeable) {
@@ -852,7 +1045,8 @@ final class WorklaneReviewStateResolver {
     private func checksChips(
         for state: WorklanePullRequestState,
         checksState: WorklaneChecksState,
-        rollup: [StatusCheckRollupEntry]?
+        rollup: [StatusCheckRollupEntry]?,
+        isWaitingForManualAction: Bool
     ) -> [WorklaneReviewChip] {
         switch checksState {
         case .failing:
@@ -866,6 +1060,9 @@ final class WorklaneReviewStateResolver {
         case .passed:
             return [WorklaneReviewChip(text: "Checks passed", style: .success)]
         case .none:
+            if isWaitingForManualAction {
+                return [WorklaneReviewChip(text: "Manual action", style: .warning)]
+            }
             // No checks reported. An open PR with nothing pending is "Ready"; drafts stay bare.
             return state == .open ? [WorklaneReviewChip(text: "Ready", style: .success)] : []
         }
@@ -953,7 +1150,12 @@ struct GitRemoteHostInfo: Equatable, Sendable {
     let host: String
     let owner: String
     let repo: String
+    let projectPath: String
     let kind: HostKind
+
+    var projectURL: String {
+        "\(scheme)://\(host)/\(projectPath)"
+    }
 
     func branchURL(branch: String) -> URL? {
         let encodedBranch = branch
@@ -965,7 +1167,7 @@ struct GitRemoteHostInfo: Equatable, Sendable {
         case .github, .unknown:
             path = "/\(owner)/\(repo)/tree/\(encodedBranch)"
         case .gitlab:
-            path = "/\(owner)/\(repo)/-/tree/\(encodedBranch)"
+            path = "/\(projectPath)/-/tree/\(encodedBranch)"
         case .bitbucket:
             path = "/\(owner)/\(repo)/src/\(encodedBranch)"
         }
@@ -1022,10 +1224,15 @@ struct GitRemoteHostInfo: Equatable, Sendable {
             return nil
         }
 
-        return buildFromHostAndPath(host: host, path: url.path, scheme: scheme)
+        return buildFromHostAndPath(host: host, port: url.port, path: url.path, scheme: scheme)
     }
 
-    private static func buildFromHostAndPath(host: String, path: String, scheme: String) -> GitRemoteHostInfo? {
+    private static func buildFromHostAndPath(
+        host: String,
+        port: Int? = nil,
+        path: String,
+        scheme: String
+    ) -> GitRemoteHostInfo? {
         var normalizedPath = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         if normalizedPath.hasSuffix(".git") {
             normalizedPath = String(normalizedPath.dropLast(4))
@@ -1042,9 +1249,10 @@ struct GitRemoteHostInfo: Equatable, Sendable {
 
         return GitRemoteHostInfo(
             scheme: scheme,
-            host: host,
+            host: port.map { "\(host):\($0)" } ?? host,
             owner: owner,
             repo: repo,
+            projectPath: normalizedPath,
             kind: kind
         )
     }
@@ -1053,7 +1261,7 @@ struct GitRemoteHostInfo: Equatable, Sendable {
         if host == "github.com" || host == "www.github.com" {
             return .github
         }
-        if host == "gitlab.com" || host == "www.gitlab.com" {
+        if host.split(separator: ".").contains("gitlab") {
             return .gitlab
         }
         if host == "bitbucket.org" || host == "www.bitbucket.org" {

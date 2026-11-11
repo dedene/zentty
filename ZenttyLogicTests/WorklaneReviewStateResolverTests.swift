@@ -332,11 +332,11 @@ final class WorklaneReviewStateResolverTests: XCTestCase {
         ])
     }
 
-    func test_resolver_skips_github_commands_when_origin_is_not_github() async {
+    func test_resolver_skips_review_commands_when_remote_host_is_not_supported() async {
         let runner = StubGHRunner(
             gitRepositoryProbeResult: .stdout(".git\n"),
             gitBranchResult: .stdout("main\n"),
-            gitRemoteResult: .stdout("git@gitlab.com:zenjoy/zentty.git\n"),
+            gitRemoteResult: .stdout("git@bitbucket.org:zenjoy/zentty.git\n"),
             prViewResult: .json(#"{"number":128,"url":"https://example.com/pr/128","isDraft":false,"state":"OPEN"}"#)
         )
         let resolver = WorklaneReviewStateResolver(runner: runner)
@@ -354,6 +354,285 @@ final class WorklaneReviewStateResolverTests: XCTestCase {
             .init(arguments: ["git", "remote", "get-url", "origin"], currentDirectoryPath: "/tmp/project"),
             .init(arguments: ["git", "remote"], currentDirectoryPath: "/tmp/project"),
         ])
+    }
+
+    func test_resolver_queries_glab_with_full_project_url_for_gitlab_com_remote() async {
+        let runner = StubGHRunner(
+            gitBranchResult: .stdout("main\n"),
+            gitRemoteResult: .stdout("git@gitlab.com:zenjoy/zentty.git\n"),
+            prViewResult: .json(#"{"iid":128,"web_url":"https://gitlab.com/zenjoy/zentty/-/merge_requests/128","state":"opened","draft":false,"has_conflicts":false,"detailed_merge_status":"mergeable","head_pipeline":{"status":"success"}}"#),
+            mrListResult: .json(#"[{"iid":128,"state":"opened","draft":false}]"#)
+        )
+        let resolver = WorklaneReviewStateResolver(runner: runner)
+
+        let resolution = await resolver.resolve(path: "/tmp/project", branch: "main")
+
+        XCTAssertEqual(resolution.reviewState?.pullRequest?.number, 128)
+        XCTAssertEqual(resolution.reviewState?.pullRequest?.url?.absoluteString, "https://gitlab.com/zenjoy/zentty/-/merge_requests/128")
+        XCTAssertEqual(resolution.reviewState?.pullRequest?.state, .open)
+        XCTAssertEqual(resolution.reviewState?.pullRequest?.kind, .mergeRequest)
+        XCTAssertEqual(resolution.reviewState?.reviewChips.map(\.text), ["Checks passed"])
+        XCTAssertEqual(resolution.reviewState?.checksState, .passed)
+
+        let calls = await runner.calls
+        XCTAssertEqual(calls.last?.arguments, ["glab", "mr", "view", "128", "-R", "https://gitlab.com/zenjoy/zentty", "-F", "json"])
+    }
+
+    func test_resolver_keeps_subgroups_for_self_hosted_gitlab_remote() async {
+        let runner = StubGHRunner(
+            gitBranchResult: .stdout("feature/x\n"),
+            gitRemoteResult: .stdout("git@gitlab.tools.example.com:products/platform/admin-ui.git\n"),
+            mrListResult: .json("[]")
+        )
+        let resolver = WorklaneReviewStateResolver(runner: runner)
+
+        let resolution = await resolver.resolve(path: "/tmp/project", branch: "feature/x")
+
+        XCTAssertEqual(
+            resolution.reviewState?.branchURL?.absoluteString,
+            "https://gitlab.tools.example.com/products/platform/admin-ui/-/tree/feature/x"
+        )
+        let calls = await runner.calls
+        XCTAssertEqual(calls.last?.arguments, ["glab", "mr", "list", "--all", "--source-branch", "feature/x", "-R", "https://gitlab.tools.example.com/products/platform/admin-ui", "-F", "json"])
+    }
+
+    func test_resolver_returns_branch_only_when_glab_lists_no_merge_request() async {
+        let runner = StubGHRunner(
+            gitBranchResult: .stdout("main\n"),
+            gitRemoteResult: .stdout("git@gitlab.com:zenjoy/zentty.git\n"),
+            mrListResult: .json("[]")
+        )
+        let resolver = WorklaneReviewStateResolver(runner: runner)
+
+        let resolution = await resolver.resolve(path: "/tmp/project", branch: "main")
+
+        XCTAssertEqual(resolution.reviewState?.branch, "main")
+        XCTAssertNil(resolution.reviewState?.pullRequest)
+        XCTAssertEqual(resolution.reviewState?.reviewRefreshFailed, false)
+    }
+
+    func test_resolver_prefers_open_merge_request_over_newer_merged_one() async {
+        let runner = StubGHRunner(
+            gitBranchResult: .stdout("main\n"),
+            gitRemoteResult: .stdout("git@gitlab.com:zenjoy/zentty.git\n"),
+            prViewResult: .json(#"{"iid":4,"state":"opened","draft":false}"#),
+            mrListResult: .json(#"[{"iid":9,"state":"merged","draft":false},{"iid":4,"state":"opened","draft":false}]"#)
+        )
+        let resolver = WorklaneReviewStateResolver(runner: runner)
+
+        let resolution = await resolver.resolve(path: "/tmp/project", branch: "main")
+
+        XCTAssertEqual(resolution.reviewState?.pullRequest?.number, 4)
+        XCTAssertEqual(resolution.reviewState?.pullRequest?.state, .open)
+        let calls = await runner.calls
+        XCTAssertEqual(calls.last?.arguments.prefix(4), ["glab", "mr", "view", "4"])
+    }
+
+    func test_resolver_uses_most_recent_merge_request_when_none_is_open_without_viewing_it() async {
+        let runner = StubGHRunner(
+            gitBranchResult: .stdout("main\n"),
+            gitRemoteResult: .stdout("git@gitlab.com:zenjoy/zentty.git\n"),
+            mrListResult: .json(#"[{"iid":13,"state":"merged","draft":false},{"iid":11,"state":"closed","draft":false}]"#)
+        )
+        let resolver = WorklaneReviewStateResolver(runner: runner)
+
+        let resolution = await resolver.resolve(path: "/tmp/project", branch: "main")
+
+        XCTAssertEqual(resolution.reviewState?.pullRequest?.number, 13)
+        XCTAssertEqual(resolution.reviewState?.reviewChips.map(\.text), ["Merged"])
+        let calls = await runner.calls
+        XCTAssertEqual(calls.last?.arguments.prefix(3), ["glab", "mr", "list"])
+    }
+
+    func test_resolver_ignores_merge_request_opened_from_a_fork_with_the_same_branch_name() async {
+        let runner = StubGHRunner(
+            gitBranchResult: .stdout("main\n"),
+            gitRemoteResult: .stdout("git@gitlab.com:zenjoy/zentty.git\n"),
+            prViewResult: .json(#"{"iid":5,"state":"opened","draft":false}"#),
+            mrListResult: .json(#"[{"iid":5,"state":"opened","draft":false,"source_project_id":2,"target_project_id":1}]"#)
+        )
+        let resolver = WorklaneReviewStateResolver(runner: runner)
+
+        let resolution = await resolver.resolve(path: "/tmp/project", branch: "main")
+
+        XCTAssertEqual(resolution.reviewState?.branch, "main")
+        XCTAssertNil(resolution.reviewState?.pullRequest)
+    }
+
+    func test_resolver_treats_numeric_branch_name_as_a_branch() async {
+        let runner = StubGHRunner(
+            gitBranchResult: .stdout("123\n"),
+            gitRemoteResult: .stdout("git@gitlab.com:zenjoy/zentty.git\n"),
+            prViewResult: .json(#"{"iid":7,"state":"opened","draft":false}"#),
+            mrListResult: .json(#"[{"iid":7,"state":"opened","draft":false}]"#)
+        )
+        let resolver = WorklaneReviewStateResolver(runner: runner)
+
+        let resolution = await resolver.resolve(path: "/tmp/project", branch: "123")
+
+        XCTAssertEqual(resolution.reviewState?.pullRequest?.number, 7)
+        let calls = await runner.calls
+        XCTAssertEqual(calls.dropLast().last?.arguments, ["glab", "mr", "list", "--source-branch", "123", "-R", "https://gitlab.com/zenjoy/zentty", "-F", "json"])
+        XCTAssertEqual(calls.last?.arguments, ["glab", "mr", "view", "7", "-R", "https://gitlab.com/zenjoy/zentty", "-F", "json"])
+    }
+
+    func test_resolver_searches_open_merge_requests_before_all_states() async {
+        let runner = StubGHRunner(
+            gitBranchResult: .stdout("main\n"),
+            gitRemoteResult: .stdout("git@gitlab.com:zenjoy/zentty.git\n"),
+            mrListResult: .json("[]")
+        )
+        let resolver = WorklaneReviewStateResolver(runner: runner)
+
+        _ = await resolver.resolve(path: "/tmp/project", branch: "main")
+
+        let listCalls = await runner.calls.map(\.arguments).filter { Array($0.prefix(3)) == ["glab", "mr", "list"] }
+        XCTAssertEqual(listCalls, [
+            ["glab", "mr", "list", "--source-branch", "main", "-R", "https://gitlab.com/zenjoy/zentty", "-F", "json"],
+            ["glab", "mr", "list", "--all", "--source-branch", "main", "-R", "https://gitlab.com/zenjoy/zentty", "-F", "json"],
+        ])
+    }
+
+    func test_git_remote_host_info_classifies_host_without_its_port() {
+        let info = GitRemoteHostInfo.parse(remoteURL: "https://bitbucket.org:443/team/repo.git")
+
+        XCTAssertEqual(info?.kind, .bitbucket)
+        XCTAssertEqual(info?.branchURL(branch: "main")?.absoluteString, "https://bitbucket.org:443/team/repo/src/main")
+    }
+
+    func test_git_remote_host_info_keeps_https_port_in_project_url() {
+        let info = GitRemoteHostInfo.parse(remoteURL: "https://gitlab.example.com:8443/group/sub/app.git")
+
+        XCTAssertEqual(info?.kind, .gitlab)
+        XCTAssertEqual(info?.projectURL, "https://gitlab.example.com:8443/group/sub/app")
+    }
+
+    func test_resolver_keeps_branch_link_when_glab_is_unavailable() async {
+        let runner = StubGHRunner(
+            gitBranchResult: .stdout("main\n"),
+            gitRemoteResult: .stdout("git@gitlab.com:zenjoy/zentty.git\n"),
+            mrListResult: .failure(stderr: "Unable to locate executable for command: glab")
+        )
+        let resolver = WorklaneReviewStateResolver(runner: runner)
+
+        let resolution = await resolver.resolve(path: "/tmp/project", branch: "main")
+
+        XCTAssertEqual(resolution.reviewState?.branch, "main")
+        XCTAssertEqual(resolution.reviewState?.branchURL?.absoluteString, "https://gitlab.com/zenjoy/zentty/-/tree/main")
+        XCTAssertNil(resolution.reviewState?.pullRequest)
+        XCTAssertEqual(resolution.reviewState?.reviewRefreshFailed, false)
+    }
+
+    func test_resolver_preserves_merge_request_when_glab_refresh_fails() async {
+        let runner = StubGHRunner(
+            gitBranchResults: [.stdout("main\n")],
+            gitRemoteResults: [.stdout("git@gitlab.com:zenjoy/zentty.git\n")],
+            prViewResults: [
+                .json(#"{"iid":9,"web_url":"https://gitlab.com/zenjoy/zentty/-/merge_requests/9","state":"opened","draft":false}"#),
+                .failure(stderr: "502 Bad Gateway"),
+            ]
+        )
+        let resolver = WorklaneReviewStateResolver(runner: runner)
+
+        _ = await resolver.resolve(path: "/tmp/project", branch: "main")
+        let resolution = await resolver.resolve(path: "/tmp/project", branch: "main", forceReload: true)
+
+        XCTAssertEqual(resolution.reviewState?.pullRequest?.number, 9)
+        XCTAssertEqual(resolution.reviewState?.reviewRefreshFailed, true)
+    }
+
+    func test_resolver_drops_merge_request_when_glab_no_longer_finds_one() async {
+        let runner = StubGHRunner(
+            gitBranchResults: [.stdout("main\n")],
+            gitRemoteResults: [.stdout("git@gitlab.com:zenjoy/zentty.git\n")],
+            prViewResults: [.json(#"{"iid":1,"state":"opened","draft":false}"#)],
+            mrListResults: [
+                .json(#"[{"iid":1,"state":"opened","draft":false}]"#),
+                .json("[]"),
+            ]
+        )
+        let resolver = WorklaneReviewStateResolver(runner: runner)
+
+        _ = await resolver.resolve(path: "/tmp/project", branch: "main")
+        let resolution = await resolver.resolve(path: "/tmp/project", branch: "main", forceReload: true)
+
+        XCTAssertNil(resolution.reviewState?.pullRequest)
+        XCTAssertEqual(resolution.reviewState?.reviewRefreshFailed, false)
+    }
+
+    func test_resolver_flags_failed_refresh_when_glab_output_cannot_be_decoded() async {
+        let runner = StubGHRunner(
+            gitBranchResults: [.stdout("main\n")],
+            gitRemoteResults: [.stdout("git@gitlab.com:zenjoy/zentty.git\n")],
+            prViewResults: [
+                .json(#"{"iid":9,"state":"opened","draft":false}"#),
+                .stdout("not json"),
+            ]
+        )
+        let resolver = WorklaneReviewStateResolver(runner: runner)
+
+        _ = await resolver.resolve(path: "/tmp/project", branch: "main")
+        let resolution = await resolver.resolve(path: "/tmp/project", branch: "main", forceReload: true)
+
+        XCTAssertEqual(resolution.reviewState?.pullRequest?.number, 9)
+        XCTAssertEqual(resolution.reviewState?.reviewRefreshFailed, true)
+    }
+
+    func test_resolver_maps_merge_request_states_to_expected_chips() async {
+        let cases: [(json: String, state: WorklanePullRequestState, chips: [String], checks: WorklaneChecksState)] = [
+            (#"{"iid":1,"state":"opened","draft":true,"head_pipeline":{"status":"failed"}}"#, .draft, ["Draft", "1 failing"], .failing),
+            (#"{"iid":2,"state":"merged","draft":false,"head_pipeline":null}"#, .merged, ["Merged"], .none),
+            (#"{"iid":3,"state":"closed","draft":false,"head_pipeline":null}"#, .closed, ["Closed"], .none),
+            (#"{"iid":4,"state":"opened","draft":false,"has_conflicts":true,"detailed_merge_status":"not_approved","head_pipeline":{"status":"running"}}"#, .open, ["Review required", "Running", "Conflicts"], .running),
+            (#"{"iid":5,"state":"opened","draft":false,"detailed_merge_status":"requested_changes","head_pipeline":{"status":"canceled"}}"#, .open, ["Changes requested", "1 failing"], .failing),
+            (#"{"iid":6,"state":"opened","draft":false,"head_pipeline":{"status":"skipped"}}"#, .open, ["Ready"], .none),
+            (#"{"iid":7,"state":"opened","draft":false,"head_pipeline":{"status":"manual"}}"#, .open, ["Manual action"], .none),
+        ]
+
+        for testCase in cases {
+            let runner = StubGHRunner(
+                gitBranchResult: .stdout("main\n"),
+                gitRemoteResult: .stdout("git@gitlab.com:zenjoy/zentty.git\n"),
+                prViewResult: .json(testCase.json),
+                mrListResult: .json("[\(testCase.json)]")
+            )
+            let resolver = WorklaneReviewStateResolver(runner: runner)
+
+            let resolution = await resolver.resolve(path: "/tmp/project", branch: "main")
+
+            XCTAssertEqual(resolution.reviewState?.pullRequest?.state, testCase.state)
+            XCTAssertEqual(resolution.reviewState?.reviewChips.map(\.text), testCase.chips)
+            XCTAssertEqual(resolution.reviewState?.checksState, testCase.checks)
+        }
+    }
+
+    func test_resolver_prefers_upstream_gitlab_remote_over_github_origin() async {
+        let runner = StubGHRunner(
+            gitBranchResult: .stdout("main\n"),
+            gitUpstreamRemoteResult: .stdout("corp\n"),
+            additionalGitRemoteResults: [
+                "corp": [.stdout("https://gitlab.example.com/group/app.git\n")],
+            ],
+            prViewResult: .json(#"{"iid":3,"state":"opened","draft":false}"#)
+        )
+        let resolver = WorklaneReviewStateResolver(runner: runner)
+
+        let resolution = await resolver.resolve(path: "/tmp/project", branch: "main")
+
+        XCTAssertEqual(resolution.reviewState?.pullRequest?.kind, .mergeRequest)
+        let calls = await runner.calls
+        XCTAssertEqual(calls.last?.arguments.first, "glab")
+    }
+
+    func test_pull_request_summary_labels_follow_the_forge_vocabulary() {
+        let pullRequest = WorklanePullRequestSummary(number: 12, url: nil, state: .open)
+        let mergeRequest = WorklanePullRequestSummary(number: 12, url: nil, state: .open, kind: .mergeRequest)
+
+        XCTAssertEqual(pullRequest.shortLabel, "PR #12")
+        XCTAssertEqual(pullRequest.longLabel, "pull request #12")
+        XCTAssertEqual(mergeRequest.shortLabel, "MR !12")
+        XCTAssertEqual(mergeRequest.longLabel, "merge request !12")
+        XCTAssertEqual(mergeRequest.capitalizedLongLabel, "Merge request !12")
     }
 
     func test_resolver_uses_non_origin_github_remote_when_origin_is_not_github() async {
@@ -1235,6 +1514,7 @@ private actor StubGHRunner: WorklaneReviewCommandRunning {
     private var gitRemoteResults: [ResultFixture]
     private var additionalGitRemoteResults: [String: [ResultFixture]]
     private var prViewResults: [ResultFixture]
+    private var mrListResults: [ResultFixture]
     private(set) var calls: [Invocation] = []
     private var holdsPRView = false
     private var heldPRViewContinuations: [CheckedContinuation<Void, Never>] = []
@@ -1247,7 +1527,8 @@ private actor StubGHRunner: WorklaneReviewCommandRunning {
         gitRemoteListResult: ResultFixture = .stdout("origin\n"),
         gitRemoteResult: ResultFixture = .stdout("git@github.com:zenjoy/zentty.git\n"),
         additionalGitRemoteResults: [String: [ResultFixture]] = [:],
-        prViewResult: ResultFixture = .failure(stderr: "missing prViewResult fixture")
+        prViewResult: ResultFixture = .failure(stderr: "missing prViewResult fixture"),
+        mrListResult: ResultFixture = .json(#"[{"iid":1,"state":"opened","draft":false}]"#)
     ) {
         self.gitRepositoryProbeResults = [gitRepositoryProbeResult]
         self.gitBranchResults = [gitBranchResult]
@@ -1256,6 +1537,7 @@ private actor StubGHRunner: WorklaneReviewCommandRunning {
         self.gitRemoteResults = [gitRemoteResult]
         self.additionalGitRemoteResults = additionalGitRemoteResults
         self.prViewResults = [prViewResult]
+        self.mrListResults = [mrListResult]
     }
 
     init(
@@ -1265,7 +1547,8 @@ private actor StubGHRunner: WorklaneReviewCommandRunning {
         gitRemoteListResults: [ResultFixture] = [.stdout("origin\n")],
         gitRemoteResults: [ResultFixture] = [.stdout("git@github.com:zenjoy/zentty.git\n")],
         additionalGitRemoteResults: [String: [ResultFixture]] = [:],
-        prViewResults: [ResultFixture]
+        prViewResults: [ResultFixture],
+        mrListResults: [ResultFixture] = [.json(#"[{"iid":1,"state":"opened","draft":false}]"#)]
     ) {
         self.gitRepositoryProbeResults = gitRepositoryProbeResults
         self.gitBranchResults = gitBranchResults
@@ -1274,6 +1557,7 @@ private actor StubGHRunner: WorklaneReviewCommandRunning {
         self.gitRemoteResults = gitRemoteResults
         self.additionalGitRemoteResults = additionalGitRemoteResults
         self.prViewResults = prViewResults
+        self.mrListResults = mrListResults
     }
 
     func run(arguments: [String], currentDirectoryPath: String) async -> WorklaneReviewCommandResult {
@@ -1313,6 +1597,10 @@ private actor StubGHRunner: WorklaneReviewCommandRunning {
             let fixture = nextFixture(in: &fixtures)
             additionalGitRemoteResults[arguments[3]] = fixtures
             return makeCommandResult(from: fixture)
+        }
+
+        if Array(arguments.prefix(3)) == ["glab", "mr", "list"] {
+            return makeCommandResult(from: nextFixture(in: &mrListResults))
         }
 
         if arguments.contains("view") {
