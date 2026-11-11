@@ -44,7 +44,7 @@
 Supported agents: Amp, Antigravity, Claude Code, Codex, Copilot CLI, Cursor, Devin, Droid, Gemini CLI, Grok Build, Hermes Agent, Kimi, Mistral Vibe, Muse Code, Oh My Pi, OpenCode, Pi, and Small Harness. Any other tool can join via the [Agent Status Protocol](docs/agent-status-protocol.md).
 
 **Projects**
-- **Dev servers and PRs in the sidebar.** Running localhost servers show as clickable ports. Panes on a branch with a PR show its checks and review state.
+- **Dev servers and PRs in the sidebar.** Running localhost servers show as clickable ports. Panes on a branch with a PR or a GitLab MR show its checks and review state (needs `gh` or `glab`).
 - **Task runners.** Detects package.json scripts, Makefiles, justfiles, Taskfiles, and mise tasks, and runs them from the palette.
 - **Global search.** Search inside a pane or across every worklane from one shortcut.
 
