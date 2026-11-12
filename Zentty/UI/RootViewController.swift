@@ -4517,3 +4517,30 @@ extension RootViewController: WorklanePeekControllerDelegate {
         )
     }
 }
+
+// MARK: - Name New Worklane
+
+extension RootViewController {
+    /// Asks for the title of a worklane that doesn't exist yet. `onMove` runs
+    /// only on Move, with the raw text (the store trims it; blank means
+    /// untitled). Cancel does nothing.
+    func beginNameNewWorklane(onMove: @escaping (String) -> Void) {
+        guard let window = view.window else {
+            return
+        }
+        let alert = NSAlert()
+        alert.messageText = "Name New Worklane"
+        alert.informativeText = "The pane moves into a new worklane with this name."
+        alert.alertStyle = .informational
+        let textField = NSTextField(string: "")
+        textField.frame = NSRect(x: 0, y: 0, width: 240, height: 24)
+        alert.accessoryView = textField
+        alert.window.initialFirstResponder = textField
+        alert.addButton(withTitle: "Move")
+        alert.addButton(withTitle: "Cancel")
+        alert.beginSheetModal(for: window) { response in
+            guard response == .alertFirstButtonReturn else { return }
+            onMove(textField.stringValue)
+        }
+    }
+}

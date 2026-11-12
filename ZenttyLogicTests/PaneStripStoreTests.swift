@@ -3954,6 +3954,55 @@ final class PaneStripStoreTests: XCTestCase {
         XCTAssertEqual(store.activeWorklaneID, WorklaneID("wl_new"))
     }
 
+    func test_transferPaneToNewWorklane_with_title_names_new_worklane() throws {
+        let store = makeTwoPaneSourceStore()
+
+        store.transferPaneToNewWorklane(
+            paneID: PaneID("A1"),
+            title: "  Client D - follow-up  ",
+            singleColumnWidth: store.layoutContext.singlePaneWidth
+        )
+
+        let newWorklane = try XCTUnwrap(store.worklanes.first(where: { $0.id == WorklaneID("wl_new") }))
+        XCTAssertEqual(newWorklane.title, "Client D - follow-up")
+        XCTAssertEqual(newWorklane.paneStripState.panes.map(\.id), [PaneID("A1")])
+        XCTAssertEqual(store.worklanes.first(where: { $0.id == WorklaneID("A") })?.title, "A")
+    }
+
+    func test_transferPaneToNewWorklane_with_blank_title_leaves_new_worklane_untitled() throws {
+        let store = makeTwoPaneSourceStore()
+
+        store.transferPaneToNewWorklane(
+            paneID: PaneID("A1"),
+            title: "   ",
+            singleColumnWidth: store.layoutContext.singlePaneWidth
+        )
+
+        let newWorklane = try XCTUnwrap(store.worklanes.first(where: { $0.id == WorklaneID("wl_new") }))
+        XCTAssertNil(newWorklane.title)
+    }
+
+    private func makeTwoPaneSourceStore() -> WorklaneStore {
+        let nextIDs = TestIDSequence(["new"])
+        return WorklaneStore(
+            worklanes: [
+                WorklaneState(
+                    id: WorklaneID("A"),
+                    title: "A",
+                    paneStripState: PaneStripState(
+                        panes: [
+                            PaneState(id: PaneID("A1"), title: "A1"),
+                            PaneState(id: PaneID("A2"), title: "A2"),
+                        ],
+                        focusedPaneID: PaneID("A1")
+                    )
+                ),
+            ],
+            activeWorklaneID: WorklaneID("A"),
+            runtimeIdentity: WorklaneRuntimeIdentity { nextIDs.next() }
+        )
+    }
+
     func test_transferPaneToNewWorklane_explicit_index_overrides_preferred_placement() {
         let nextIDs = TestIDSequence(["new"])
         let store = WorklaneStore(

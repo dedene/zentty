@@ -288,18 +288,24 @@ extension WorklaneStore {
 
     func transferPaneToNewWorklane(
         paneID: PaneID,
+        title: String? = nil,
         singleColumnWidth: CGFloat
     ) {
         transferPaneToNewWorklane(
             paneID: paneID,
             atIndex: insertionIndexForNewWorklane(anchorWorklaneID: activeWorklaneID),
+            title: title,
             singleColumnWidth: singleColumnWidth
         )
     }
 
+    /// `title` names the new worklane (trimmed; blank means untitled). It is
+    /// ignored when the pane is its worklane's only one, because that case
+    /// moves the existing worklane and keeps its identity.
     func transferPaneToNewWorklane(
         paneID: PaneID,
         atIndex insertionIndex: Int,
+        title: String? = nil,
         singleColumnWidth: CGFloat
     ) {
         // Floats don't move to other worklanes in v1; only tiles do.
@@ -323,7 +329,7 @@ extension WorklaneStore {
         let newWorklaneID = runtimeIdentity.makeWorklaneID()
         let newWorklane = WorklaneState(
             id: newWorklaneID,
-            title: nil,
+            title: WorklaneContextFormatter.trimmed(title),
             paneStripState: PaneStripState(columns: [], focusedColumnID: nil),
             nextPaneNumber: 1
         )

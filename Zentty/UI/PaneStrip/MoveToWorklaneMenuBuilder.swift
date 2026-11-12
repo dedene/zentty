@@ -23,6 +23,7 @@ enum MoveToWorklaneMenuBuilder {
                 submenu.addItem(.separator())
             }
             submenu.addItem(makeNewWorklaneItem(paneID: paneID))
+            submenu.addItem(makeNamedNewWorklaneItem(paneID: paneID))
         }
 
         return submenu
@@ -68,6 +69,21 @@ enum MoveToWorklaneMenuBuilder {
         )
         item.image = NSImage(systemSymbolName: "rectangle.stack.badge.plus",
                              accessibilityDescription: "New Worklane")?
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 13, weight: .regular))
+        item.representedObject = paneID
+        return item
+    }
+
+    /// Same move as `makeNewWorklaneItem`, but asks for the new worklane's
+    /// title first, so the lane doesn't need a separate rename afterwards.
+    static func makeNamedNewWorklaneItem(paneID: PaneID) -> NSMenuItem {
+        let item = NSMenuItem(
+            title: "New Named Worklane in This Window\u{2026}",
+            action: #selector(MainWindowController.movePaneToNamedNewWorklaneInThisWindow(_:)),
+            keyEquivalent: ""
+        )
+        item.image = NSImage(systemSymbolName: "rectangle.stack.badge.plus",
+                             accessibilityDescription: "New Named Worklane")?
             .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 13, weight: .regular))
         item.representedObject = paneID
         return item
