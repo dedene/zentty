@@ -130,7 +130,7 @@ struct ZenttyTheme: Equatable {
     static let animationDuration: CFTimeInterval = 0.20
 
     static func == (lhs: ZenttyTheme, rhs: ZenttyTheme) -> Bool {
-        [
+        let lhsColors: [NSColor] = [
             lhs.windowBackground, lhs.sidebarBackground, lhs.sidebarBorder, lhs.sidebarShadow,
             lhs.topChromeBackground, lhs.topChromeBorder, lhs.canvasBackground, lhs.canvasBorder,
             lhs.canvasShadow, lhs.contextStripBackground, lhs.contextStripBorder, lhs.worklaneChipBackground, lhs.worklaneChipText,
@@ -160,7 +160,8 @@ struct ZenttyTheme: Equatable {
             lhs.underlapShadow, lhs.paneOpaqueBackdrop,
             lhs.statusRunning, lhs.statusNeedsInput, lhs.statusStopped, lhs.statusReady, lhs.statusCheckBack,
             lhs.statusIdle,
-        ].map(\.themeToken) == [
+        ]
+        let rhsColors: [NSColor] = [
             rhs.windowBackground, rhs.sidebarBackground, rhs.sidebarBorder, rhs.sidebarShadow,
             rhs.topChromeBackground, rhs.topChromeBorder, rhs.canvasBackground, rhs.canvasBorder,
             rhs.canvasShadow, rhs.contextStripBackground, rhs.contextStripBorder, rhs.worklaneChipBackground, rhs.worklaneChipText,
@@ -190,7 +191,13 @@ struct ZenttyTheme: Equatable {
             rhs.underlapShadow, rhs.paneOpaqueBackdrop,
             rhs.statusRunning, rhs.statusNeedsInput, rhs.statusStopped, rhs.statusReady, rhs.statusCheckBack,
             rhs.statusIdle,
-        ].map(\.themeToken)
+        ]
+        // Sidebar rows compare themes on every metadata tick. Copies of one
+        // theme share their color objects, so identity settles the common case
+        // without converting every color to a token string.
+        let colorsMatch = zip(lhsColors, rhsColors).allSatisfy { $0 === $1 }
+            || lhsColors.map(\.themeToken) == rhsColors.map(\.themeToken)
+        return colorsMatch
             && lhs.sidebarGlassAppearance == rhs.sidebarGlassAppearance
             && lhs.sidebarGlassOpacity == rhs.sidebarGlassOpacity
             && lhs.reducedTransparency == rhs.reducedTransparency
