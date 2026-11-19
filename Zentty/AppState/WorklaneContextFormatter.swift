@@ -618,6 +618,10 @@ enum WorklaneContextFormatter {
     }
 
     private static func gitRepositoryRoot(for path: String) -> String? {
+        GitRepositoryRootCache.shared.root(for: path, resolve: gitRepositoryRootOnDisk(for:))
+    }
+
+    private static func gitRepositoryRootOnDisk(for path: String) -> String? {
         var currentPath = standardPath(path)
         let fileManager = FileManager.default
 
@@ -710,7 +714,9 @@ enum WorklaneContextFormatter {
     }
 
     private static func standardPath(_ path: String) -> String {
-        URL(fileURLWithPath: path).standardizedFileURL.path
+        // `isDirectory: false` skips the `lstat` Foundation otherwise runs to
+        // decide on a trailing slash; `.path` drops that slash either way.
+        URL(fileURLWithPath: path, isDirectory: false).standardizedFileURL.path
     }
 
     private static func standardizedPath(_ path: String?) -> String? {

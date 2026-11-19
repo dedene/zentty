@@ -73,22 +73,20 @@ enum WorklaneSidebarSummaryBuilder {
     ) -> [WorklaneSidebarSummary] {
         let focusOverride = validFocusOverride(focusOverride, in: worklanes)
         let effectiveActiveWorklaneID = focusOverride?.worklaneID ?? activeWorklaneID
-        let identitiesByWorklaneID = Dictionary(
-            uniqueKeysWithValues: worklanes.map { worklane in
-                (worklane.id, worklaneIdentity(for: worklane, focusOverride: focusOverride))
-            }
-        )
-        let baseSummaries = worklanes.enumerated().map { index, worklane in
-            summary(
+        let resolved = worklanes.enumerated().map { index, worklane in
+            memoizedSummary(
                 for: worklane,
                 isActive: worklane.id == effectiveActiveWorklaneID,
-                identity: identitiesByWorklaneID[worklane.id],
                 displayOrder: index + 1,
                 focusOverride: focusOverride,
                 serverContext: serverContextsByWorklaneID[worklane.id],
                 showsTemporaryFloats: showsTemporaryFloats
             )
         }
+        let identitiesByWorklaneID = Dictionary(
+            uniqueKeysWithValues: zip(worklanes, resolved).map { ($0.id, $1.identity) }
+        )
+        let baseSummaries = resolved.map(\.summary)
 
         return disambiguatedSummaries(
             baseSummaries,
@@ -102,13 +100,62 @@ enum WorklaneSidebarSummaryBuilder {
         isActive: Bool,
         serverContext: WorklaneServerContext? = nil
     ) -> WorklaneSidebarSummary {
-        summary(
+        memoizedSummary(
             for: worklane,
             isActive: isActive,
-            identity: worklaneIdentity(for: worklane),
             displayOrder: 1,
-            serverContext: serverContext
+            focusOverride: nil,
+            serverContext: serverContext,
+            showsTemporaryFloats: true
+        ).summary
+    }
+
+    private typealias ResolvedSummary = (identity: WorklaneSidebarIdentity, summary: WorklaneSidebarSummary)
+
+    private static let summaryMemo = WorklaneSidebarSummaryMemo<ResolvedSummary>()
+
+    /// How many worklane summaries were built from scratch (memo misses).
+    static var summaryBuildCountForTesting: Int {
+        summaryMemo.buildCount
+    }
+
+    static func resetSummaryMemoForTesting() {
+        summaryMemo.removeAll()
+    }
+
+    private static func memoizedSummary(
+        for worklane: WorklaneState,
+        isActive: Bool,
+        displayOrder: Int,
+        focusOverride: WorklaneSidebarFocusOverride?,
+        serverContext: WorklaneServerContext?,
+        showsTemporaryFloats: Bool
+    ) -> ResolvedSummary {
+        let focusOverride = focusOverride?.worklaneID == worklane.id ? focusOverride : nil
+        let key = WorklaneSidebarSummaryMemo<ResolvedSummary>.Key(
+            worklane: worklane,
+            isActive: isActive,
+            displayOrder: displayOrder,
+            focusOverride: focusOverride,
+            serverContext: serverContext,
+            showsTemporaryFloats: showsTemporaryFloats
         )
+
+        return summaryMemo.value(for: key) {
+            let identity = worklaneIdentity(for: worklane, focusOverride: focusOverride)
+            return (
+                identity: identity,
+                summary: summary(
+                    for: worklane,
+                    isActive: isActive,
+                    identity: identity,
+                    displayOrder: displayOrder,
+                    focusOverride: focusOverride,
+                    serverContext: serverContext,
+                    showsTemporaryFloats: showsTemporaryFloats
+                )
+            )
+        }
     }
 
     private static func summary(
