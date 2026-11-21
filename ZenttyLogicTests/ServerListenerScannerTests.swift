@@ -30,6 +30,49 @@ final class ServerListenerScannerTests: XCTestCase {
         XCTAssertEqual(servers[0].source, .scanner)
     }
 
+    func test_skips_listener_owned_by_pane_agent_but_keeps_its_children() throws {
+        let date = date
+        let scanner = ServerListenerScanner(
+            processInspector: FakeProcessInspector(
+                sockets: [
+                    // Claude Code's own loopback port.
+                    ListeningSocket(pid: 200, localHost: "127.0.0.1", port: 61433),
+                    // A dev server the agent started.
+                    ListeningSocket(pid: 300, localHost: "127.0.0.1", port: 5173),
+                ],
+                parentByPID: [300: 200, 200: 100],
+                cwdByPID: [:]
+            ),
+            currentDate: { date }
+        )
+
+        let servers = scanner.scan(context: context(panes: [
+            PaneScanContext(paneID: paneA, workingDirectory: "/tmp/project", shellPID: 100, agentPIDs: [200])
+        ]))
+
+        XCTAssertEqual(servers.map(\.origin), ["http://localhost:5173"])
+        XCTAssertEqual(servers.first?.paneID, paneA)
+    }
+
+    func test_keeps_listener_when_agent_pids_belong_to_another_process() throws {
+        let date = date
+        let scanner = ServerListenerScanner(
+            processInspector: FakeProcessInspector(
+                sockets: [ListeningSocket(pid: 200, localHost: "127.0.0.1", port: 5173)],
+                parentByPID: [200: 100],
+                cwdByPID: [:]
+            ),
+            currentDate: { date }
+        )
+
+        let servers = scanner.scan(context: context(panes: [
+            PaneScanContext(paneID: paneA, workingDirectory: "/tmp/project", shellPID: 100, agentPIDs: [999])
+        ]))
+
+        XCTAssertEqual(servers.map(\.origin), ["http://localhost:5173"])
+        XCTAssertEqual(servers.first?.paneID, paneA)
+    }
+
     func test_attributes_listener_by_matching_cwd_when_pid_tree_unavailable() throws {
         let date = date
         let scanner = ServerListenerScanner(
