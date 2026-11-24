@@ -11,17 +11,22 @@ struct PaneScanContext: Equatable, Sendable {
     let workingDirectory: String
     let repositoryRoot: String?
     let shellPID: pid_t?
+    /// Processes of the agent CLI running in the pane. Their own listeners
+    /// (e.g. Claude Code's loopback control port) are not user servers.
+    let agentPIDs: Set<pid_t>
 
     init(
         paneID: PaneID,
         workingDirectory: String,
         repositoryRoot: String? = nil,
-        shellPID: pid_t?
+        shellPID: pid_t?,
+        agentPIDs: Set<pid_t> = []
     ) {
         self.paneID = paneID
         self.workingDirectory = workingDirectory
         self.repositoryRoot = repositoryRoot
         self.shellPID = shellPID
+        self.agentPIDs = agentPIDs
     }
 }
 
@@ -52,6 +57,12 @@ struct ServerListenerScanner: Sendable {
         context: ServerScanContext,
         updatedAt: Date
     ) -> DetectedServer? {
+        // The agent CLI's own listener (Claude Code's loopback port) is not a
+        // server. Processes it starts have other pids and still count.
+        if context.panes.contains(where: { $0.agentPIDs.contains(socket.pid) }) {
+            return nil
+        }
+
         guard let candidate = try? ServerURLNormalizer.normalize("\(formattedHost(socket.localHost)):\(socket.port)") else {
             return nil
         }

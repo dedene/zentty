@@ -326,6 +326,12 @@ struct PaneRawState: Equatable, Sendable {
         return now < deadline
     }
 
+    /// PIDs of the pane's agent CLI process itself, never its ancestors
+    /// or children, so a server in the same process tree still shows.
+    var agentProcessIDs: Set<Int32> {
+        Set([foregroundAgentSnapshot?.agent?.pid, agentMetadata?.pid].compactMap { $0 })
+    }
+
     mutating func reconcileForegroundAgent(_ snapshot: PaneForegroundAgentSnapshot) {
         var owner = snapshot.agent
         // Some CLIs run entirely as `node` or `python`; their hook PID still
