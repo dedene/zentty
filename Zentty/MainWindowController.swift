@@ -233,7 +233,8 @@ final class MainWindowController: NSObject, NSWindowDelegate {
     var onNavigateToNotificationRequested: ((WindowID, WorklaneID, PaneID) -> Void)?
     var onMovePaneToNewWindowRequested: ((MainWindowController, PaneID?) -> Void)?
     var onMovePaneToWorklaneRequested: ((MainWindowController, MovePaneToWorklaneRequest) -> Void)?
-    var onMovePaneToNewWorklaneInThisWindowRequested: ((MainWindowController, PaneID) -> Void)?
+    /// The title is nil for an untitled worklane.
+    var onMovePaneToNewWorklaneInThisWindowRequested: ((MainWindowController, PaneID, String?) -> Void)?
     var moveToWorklaneCatalogProvider: ((MainWindowController, PaneID) -> WorklaneDestinationCatalog?)?
     var onWorkspaceStateDidChange: (() -> Void)?
     /// Every main window, for Agent History jumps and forks across windows. Nil: just this one.
@@ -1100,7 +1101,18 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         guard let paneID = representedPaneID(from: sender) ?? rootViewController.focusedPaneID() else {
             return
         }
-        onMovePaneToNewWorklaneInThisWindowRequested?(self, paneID)
+        onMovePaneToNewWorklaneInThisWindowRequested?(self, paneID, nil)
+    }
+
+    @objc
+    func movePaneToNamedNewWorklaneInThisWindow(_ sender: Any?) {
+        guard let paneID = representedPaneID(from: sender) ?? rootViewController.focusedPaneID() else {
+            return
+        }
+        rootViewController.beginNameNewWorklane { [weak self] title in
+            guard let self else { return }
+            self.onMovePaneToNewWorklaneInThisWindowRequested?(self, paneID, title)
+        }
     }
 
     func canMovePaneToNewWindow(paneID: PaneID?) -> Bool {
@@ -1141,11 +1153,12 @@ final class MainWindowController: NSObject, NSWindowDelegate {
         )
     }
 
-    func transferPaneToNewWorklaneInThisWindow(paneID: PaneID) {
+    func transferPaneToNewWorklaneInThisWindow(paneID: PaneID, title: String? = nil) {
         let store = rootViewController.worklaneStore
         ensureSourceWorklaneActive(for: paneID, in: store)
         store.transferPaneToNewWorklane(
             paneID: paneID,
+            title: title,
             singleColumnWidth: store.layoutContext.singlePaneWidth
         )
     }
